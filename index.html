@@ -1502,7 +1502,8 @@ function missionRow(m) {
       <div class="mc-actions">
         ${m.statut !== 'attente' ? '' : `<button class="btn-mc" onclick="updateMissionStatus('${m.id}','en-cours')">▶ Démarrer</button>`}
         ${m.statut === 'en-cours' ? `<button class="btn-mc" onclick="updateMissionStatus('${m.id}','termine')">✓ Terminé</button>` : ''}
-        ${hasReport ? `<button class="btn-mc rapport" onclick="openRapport('${m.id}')">📊 Rapport</button>` : ''}
+        ${hasReport ? `<button class="btn-mc rapport" onclick="openRapport('${m.id}')">📊 Rapport PBO</button>` : ''}
+        ${m.pm_data ? `<button class="btn-mc rapport" style="background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none" onclick="openRapportPM('${m.id}')">📄 Rapport PM</button>` : ''}
         ${m.statut === 'termine' ? `<button class="btn-mc" style="background:var(--blue);color:#fff;border:none" onclick="exportMissionCSV('${m.id}')">⬇ CSV</button>` : ''}
         ${(currentUser?.role === 'admin' || currentUser?.role === 'be') ? `<button class="btn-mc danger" onclick="deleteMission('${m.id}')">✕</button>` : ''}
       </div>
@@ -1737,6 +1738,16 @@ async function startAudit(id) {
   renderTechMissions();
   // Load PBO data into audit tool
   if (updM?.pbo_data?.length > 0) {
+    // Restore PM data if mission has it (for PM-type audits)
+    if(updM.pm_data){
+      pmData=updM.pm_data;
+      renderPM(updM.pm_filename||'PM importé');
+    }
+    // Restore commandes data if mission has it
+    if(updM.cmd_data){
+      cmdData=updM.cmd_data;
+      analyseCommandes();
+    }
     // Load existing photos from DB for this mission
     const{data:photoData}=await sb.from('photos').select('*').eq('mission_id',updM.id);
     if(photoData){
@@ -1812,6 +1823,19 @@ async function startAudit(id) {
 // ══════════════════════════════════════════════
 // RAPPORT BE
 // ══════════════════════════════════════════════
+async function openRapportPM(missionId){
+  const m=missions.find(x=>x.id===missionId);
+  if(!m){alert('Mission introuvable.');return;}
+  if(!m.pm_data){alert('Aucun rapport PM disponible pour cette mission.');return;}
+  // Restore state for PDF export
+  selectedMissionId=missionId;
+  pmData=m.pm_data;
+  cmdData=m.cmd_data||null;
+  if(cmdData)analyseCommandes();else cmdAnalysis=null;
+  // Now generate the unified PM PDF
+  exportPMPDF();
+}
+
 function openRapport(missionId) {
   const m = missions.find(x => x.id === missionId);
   if (!m || !m.pbo_data?.length) return;
@@ -2062,6 +2086,12 @@ function analyseCommandes(){
   cmdData.commandes.forEach(cmd=>{if(cmdByOp[cmd.op])cmdByOp[cmd.op].push(cmd);});
   // Compute analysis
   cmdAnalysis={};
+  // Save commandes data to mission
+  if(selectedMissionId){
+    sb.from('missions').update({cmd_data:cmdData,cmd_filename:cmdData.fileName}).eq('id',selectedMissionId).then(r=>{
+      if(r.error)console.error('Save cmd_data error:',r.error);
+    });
+  }
   Object.keys(terrain).forEach(op=>{
     const tCount=terrain[op].length, cCount=cmdByOp[op].length;
     const diff=tCount-cCount;
@@ -2255,6 +2285,12 @@ function loadPMFile(file) {
       }
     }catch(err){alert('Erreur: '+err.message);return;}
     pmData=data;renderPM(file.name);
+    // Save PM data to mission if we're in a mission context
+    if(selectedMissionId){
+      sb.from('missions').update({pm_data:pmData,pm_filename:file.name}).eq('id',selectedMissionId).then(r=>{
+        if(r.error)console.error('Save pm_data error:',r.error);
+      });
+    }
   };
   if(ext==='xlsx')reader.readAsBinaryString(file);else reader.readAsText(file,'Windows-1252');
 }
