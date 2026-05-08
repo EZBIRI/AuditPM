@@ -914,8 +914,8 @@ console.log('Supabase client initialized:', SUPABASE_URL);
                   <div id="cmd-alert" style="display:none;background:var(--yellow-lt);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;font-weight:600;color:var(--yellow)"></div>
                   <div id="cmd-details"></div>
                   <div id="cmd-actions" style="display:none;gap:8px">
-                    <button onclick="exportCmdPDF()" style="flex:1;padding:10px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:700;cursor:pointer">📄 Export rapport PDF</button>
-                    <button onclick="exportCmdCSV()" style="flex:1;padding:10px;background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:600;cursor:pointer">⬇ Export CSV</button>
+                    <button onclick="exportPMPDF()" style="flex:1;padding:10px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:700;cursor:pointer">📄 Export rapport PDF complet (PM + surplus)</button>
+                    <button onclick="exportCmdCSV()" style="flex:1;padding:10px;background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:600;cursor:pointer">⬇ Export CSV surplus</button>
                   </div>
                 </div>
               </div>
@@ -2326,7 +2326,9 @@ function closeModal(){document.getElementById('photo-modal').classList.remove('o
 // PM PDF
 function exportPMPDF(){
   if(!pmData){alert('Aucun PM chargé.');return;}
-  const fname=document.getElementById('pm-fname').textContent||'PM';
+  const currentMission=selectedMissionId?missions.find(x=>x.id===selectedMissionId):null;
+  const rawName=document.getElementById('pm-fname').textContent||'PM';
+  const fname=currentMission?.ref_pm||rawName.replace(/\.\w+$/,'');
   const dateR=new Date().toLocaleString('fr-FR');
   let total=0,libres=0;const cc={};
   Object.values(pmData).forEach(t=>Object.values(t).forEach(p=>{total++;if(p.couleur==='*')libres++;else cc[p.couleur]=(cc[p.couleur]||0)+1;}));
@@ -2349,6 +2351,31 @@ function exportPMPDF(){
     Object.keys(cc).sort().map(col=>{const clr=sol(col);return `<div style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:${clr}22;border:1px solid ${clr};display:inline-block"></span><span style="font-size:10px;color:#374151">${col} (${cc[col]})</span></div>`;}).join('')+
   '</div>';
   const photosH=pmPhotos.length>0?`<div style="margin-top:20px;page-break-before:always"><div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-bottom:5px;border-bottom:2px solid #0f172a">Photos de l'armoire</div><div style="display:grid;grid-template-columns:repeat(${Math.min(pmPhotos.length,3)},1fr);gap:12px">${pmPhotos.map(ph=>`<div><img src="${ph.dataUrl}" style="width:100%;height:180px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0"><div style="font-size:9px;color:#94a3b8;margin-top:4px;text-align:center">${ph.name}</div></div>`).join('')}</div></div>`:'';
+  // Surplus jarretieres section (only if cmd analysis available)
+  let surplusSection='';
+  if(cmdAnalysis){
+    const totalSurplus=Object.values(cmdAnalysis).filter(a=>a.surplus).reduce((s,a)=>s+a.diff,0);
+    const OPC={'FREE':{bg:'#FCEBEB',bd:'#E24B4A',tx:'#A32D2D',label:'FREE · ROUGE'},'ORANGE':{bg:'#FAEEDA',bd:'#EF9F27',tx:'#854F0B',label:'ORANGE'},'BOUYGUES':{bg:'#EAF3DE',bd:'#97C459',tx:'#3B6D11',label:'BOUYGUES · VERT'},'SFR':{bg:'#E6F1FB',bd:'#378ADD',tx:'#185FA5',label:'SFR · BLEU'}};
+    let cards='';
+    Object.keys(OPC).forEach(op=>{
+      const a=cmdAnalysis[op],col=OPC[op];
+      cards+='<div style="background:#fff;border:1px solid #e2e8f0;border-left:4px solid '+col.bd+';padding:10px;border-radius:6px"><div style="font-size:10px;color:'+col.tx+';font-weight:700;letter-spacing:.5px">'+col.label+'</div><div style="display:flex;align-items:baseline;gap:4px;margin-top:4px"><span style="font-size:20px;font-weight:900">'+a.terrain+'</span><span style="font-size:10px;color:#94a3b8">/ '+a.commandes+' cmd</span></div><div style="font-size:11px;color:'+(a.surplus?'#dc2626':'#15803d')+';margin-top:3px;font-weight:700">'+(a.surplus?'⚠ +'+a.diff+' surplus':(a.diff===0?'✓ Égal':'✓ '+a.diff+' OK'))+'</div></div>';
+    });
+    let opDetails='';
+    Object.keys(OPC).forEach(op=>{
+      const a=cmdAnalysis[op];
+      if(!a.surplus)return;
+      const col=OPC[op];
+      const positions=a.positionsPasDeNo.slice().sort((x,y)=>{if(x.tiroir!==y.tiroir)return parseInt(x.tiroir)-parseInt(y.tiroir);return x.position.localeCompare(y.position);});
+      if(positions.length===0){
+        opDetails+='<div style="margin-bottom:14px;page-break-inside:avoid"><div style="background:'+col.bg+';padding:10px 14px;border-radius:6px;border:1px solid '+col.bd+'"><div style="font-size:13px;font-weight:800;color:'+col.tx+'">'+op+' — Aucune position sans n°</div><div style="font-size:11px;color:#64748b;margin-top:4px;font-style:italic">+'+a.diff+' surplus avec SSN identifié — investigation manuelle requise</div></div></div>';
+        return;
+      }
+      const rows=positions.map((p,i)=>'<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+'"><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700">T'+p.tiroir+'</td><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700;color:'+col.tx+'">'+p.position+'</td><td style="padding:6px 10px;font-size:10px;color:#64748b">'+(p.ssn||'—')+'</td><td style="padding:6px 10px;text-align:center"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+col.bd+';margin-right:4px"></span><span style="font-size:11px">'+a.color+'</span></td></tr>').join('');
+      opDetails+='<div style="margin-bottom:14px;page-break-inside:avoid"><div style="display:flex;align-items:center;justify-content:space-between;background:'+col.bg+';padding:8px 14px;border-radius:6px 6px 0 0;border:1px solid '+col.bd+';border-bottom:none"><div style="font-size:12px;font-weight:800;color:'+col.tx+'">'+op+' — '+positions.length+' position'+(positions.length>1?'s':'')+' sans n° à investiguer</div><div style="font-size:10px;font-weight:700;padding:2px 8px;background:#fff;color:'+col.tx+';border-radius:4px;border:1px solid '+col.bd+'">+'+a.diff+' surplus</div></div><table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;border:1px solid '+col.bd+'"><thead><tr style="background:#0f172a;color:#fff"><th style="padding:6px 10px;text-align:center;font-size:10px">Tiroir</th><th style="padding:6px 10px;text-align:center;font-size:10px">Position</th><th style="padding:6px 10px;text-align:left;font-size:10px">SSN</th><th style="padding:6px 10px;text-align:center;font-size:10px">Couleur</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    });
+    surplusSection=`<div style="page-break-before:always"><div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-bottom:5px;border-bottom:2px solid #0f172a">Analyse commandes opérateurs · Jarretières en surplus</div><div style="background:`+(totalSurplus>0?'#fef3c7':'#dcfce7')+`;border:1px solid `+(totalSurplus>0?'#fde047':'#86efac')+`;border-radius:8px;padding:10px 14px;margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:`+(totalSurplus>0?'#854d0e':'#15803d')+`">`+(totalSurplus>0?'⚠️ '+totalSurplus+' jarretière'+(totalSurplus>1?'s':'')+' en surplus détectée'+(totalSurplus>1?'s':''):'✅ Aucun écart détecté')+`</div></div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px">`+cards+`</div>`+(opDetails||'')+`</div>`;
+  }
   const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport PM · ${fname}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#0f172a;font-size:12px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{margin:12mm;size:A4}}</style></head><body>
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a">
     <div><div style="font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#003087;margin-bottom:4px">Rapport PM · XP Fibre SFR</div><div style="font-size:22px;font-weight:900;color:#0f172a;letter-spacing:-.5px">${fname}</div><div style="font-size:11px;color:#64748b;margin-top:3px">Généré le ${dateR}</div></div>
@@ -2363,7 +2390,7 @@ function exportPMPDF(){
   </div>
   <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Légende</div>${legH}
   <div style="margin-top:16px;font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;padding-bottom:5px;border-bottom:2px solid #0f172a">Grille des tiroirs</div>
-  ${tirnb}${photosH}
+  ${tirnb}${photosH}${surplusSection}
   <script>window.onload=function(){window.print()};<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Autorisez les pop-ups.');return;}w.document.write(html);w.document.close();
 }
