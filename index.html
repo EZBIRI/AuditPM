@@ -880,6 +880,35 @@ console.log('Supabase client initialized:', SUPABASE_URL);
                   <div style="font-size:10px;color:var(--text4);margin-top:4px;text-align:center;font-family:var(--mono)">Grille + photos</div>
                 </div>
               </div>
+
+              <!-- ═══ COMMANDES MODULE ═══ -->
+              <div id="cmd-module" style="margin-bottom:14px">
+                <div style="font-size:11px;color:var(--blue-mid);margin:0 0 8px;font-family:var(--mono);letter-spacing:.5px;font-weight:600;text-transform:uppercase">━━ Analyse commandes opérateurs ━━</div>
+                <div id="cmd-empty" style="border:2px dashed rgba(0,48,135,.3);border-radius:10px;padding:18px;text-align:center;background:var(--blue-lt);cursor:pointer" onclick="document.getElementById('cmd-file').click()"
+                  ondragover="event.preventDefault();this.style.background='#CCDDF7'"
+                  ondragleave="this.style.background='var(--blue-lt)'"
+                  ondrop="dropCmdFile(event)">
+                  <input type="file" id="cmd-file" accept=".xlsx" onchange="loadCmdFile(this.files[0])" style="display:none">
+                  <div style="font-size:24px;margin-bottom:6px">📊</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:4px">Charger le fichier des commandes opérateurs (A5)</div>
+                  <div style="font-size:11px;color:var(--blue);opacity:.7;font-family:var(--mono)">Format Excel (.xlsx) — pour comparer avec les jarretières du terrain</div>
+                </div>
+                <div id="cmd-result" style="display:none">
+                  <div class="file-pill" style="display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:14px">
+                    <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✅ <span id="cmd-fname"></span></div>
+                    <button onclick="clearCmd()" style="font-size:10px;padding:4px 9px;border-radius:5px;border:1px solid rgba(226,0,26,.3);background:var(--red-lt);color:var(--red);cursor:pointer;font-family:'Syne',sans-serif;font-weight:600">🗑️ Supprimer</button>
+                  </div>
+                  <div style="font-size:12px;font-weight:600;color:var(--text3);margin:0 0 8px;letter-spacing:.5px;text-transform:uppercase">Comparatif terrain vs commandes</div>
+                  <div id="cmd-comparatif" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px"></div>
+                  <div id="cmd-alert" style="display:none;background:var(--yellow-lt);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;font-weight:600;color:var(--yellow)"></div>
+                  <div id="cmd-details"></div>
+                  <div id="cmd-actions" style="display:none;gap:8px">
+                    <button onclick="exportCmdPDF()" style="flex:1;padding:10px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:700;cursor:pointer">📄 Export rapport PDF</button>
+                    <button onclick="exportCmdCSV()" style="flex:1;padding:10px;background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);font-family:'Syne',sans-serif;font-size:12px;font-weight:600;cursor:pointer">⬇ Export CSV</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="cabinet">
                 <div class="cabinet-hdr">
                   <span class="cabinet-title" id="pm-cab-title">ARMOIRE PM</span>
@@ -1959,6 +1988,217 @@ function clearPM(){
   const legend=document.getElementById('pm-legend');if(legend)legend.innerHTML='';
   const body=document.getElementById('pm-body');if(body)body.innerHTML='';
   const pgrid=document.getElementById('pm-pgrid');if(pgrid)pgrid.innerHTML='<div class="photo-empty">Aucune photo</div>';
+}
+
+// ══════════════════════════════════════════════
+// COMMANDES MODULE (A5 file)
+// ══════════════════════════════════════════════
+let cmdData = null;
+let cmdAnalysis = null;
+const COLOR_TO_OP = { 'rouge':'FREE', 'orange':'ORANGE', 'vert':'BOUYGUES', 'bleu':'SFR' };
+const OP_TO_COLOR = { 'FREE':'Rouge', 'ORANGE':'Orange', 'BOUYGUES':'Vert', 'SFR':'Bleu' };
+const OP_COLORS = {
+  'FREE': {bg:'#FCEBEB', bd:'#E24B4A', tx:'#A32D2D', label:'FREE · ROUGE'},
+  'ORANGE': {bg:'#FAEEDA', bd:'#EF9F27', tx:'#854F0B', label:'ORANGE'},
+  'BOUYGUES': {bg:'#EAF3DE', bd:'#97C459', tx:'#3B6D11', label:'BOUYGUES · VERT'},
+  'SFR': {bg:'#E6F1FB', bd:'#378ADD', tx:'#185FA5', label:'SFR · BLEU'}
+};
+
+function dropCmdFile(e){e.preventDefault();const f=e.dataTransfer.files[0];if(f)loadCmdFile(f);}
+
+function loadCmdFile(file){
+  if(!file)return;
+  if(!pmData){alert('Veuillez d\'abord charger le fichier PM.');return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+      if(!rows.length)throw new Error('Fichier vide');
+      const hdr=rows[0].map(h=>String(h||'').toLowerCase().trim());
+      // Find columns: Code (operator), NomModulePm, PositionModulePm, ReferencePBO
+      const ci={
+        code: hdr.findIndex(h=>h==='code'),
+        nomModule: hdr.findIndex(h=>h.includes('nommodulepm')||h.includes('nom module')),
+        position: hdr.findIndex(h=>h.includes('positionmodulepm')||h.includes('position module')),
+        pbo: hdr.findIndex(h=>h.includes('referencepbo'))
+      };
+      if(ci.code<0){alert('Colonne "Code" introuvable dans le fichier A5.');return;}
+      const commandes=[];
+      for(let i=1;i<rows.length;i++){
+        const r=rows[i];if(!r||!r[ci.code])continue;
+        const op=String(r[ci.code]||'').toUpperCase().trim();
+        if(!OP_COLORS[op])continue;
+        commandes.push({
+          op:op,
+          module:String(r[ci.nomModule]||'').trim(),
+          position:String(r[ci.position]||'').trim(),
+          pbo:String(r[ci.pbo]||'').trim()
+        });
+      }
+      cmdData={fileName:file.name,commandes:commandes};
+      analyseCommandes();
+    }catch(err){alert('Erreur lecture A5: '+err.message);}
+  };
+  reader.readAsBinaryString(file);
+}
+
+function analyseCommandes(){
+  if(!cmdData||!pmData)return;
+  // Count terrain by color
+  const terrain={'FREE':[],'ORANGE':[],'BOUYGUES':[],'SFR':[]};
+  Object.keys(pmData).forEach(t=>{
+    Object.keys(pmData[t]).forEach(pos=>{
+      const c=(pmData[t][pos].couleur||'').toLowerCase();
+      const op=COLOR_TO_OP[c];
+      if(op)terrain[op].push({tiroir:t,position:pos,couleur:c,ssn:pmData[t][pos].ssn});
+    });
+  });
+  // Count commandes by op
+  const cmdByOp={'FREE':[],'ORANGE':[],'BOUYGUES':[],'SFR':[]};
+  cmdData.commandes.forEach(cmd=>{if(cmdByOp[cmd.op])cmdByOp[cmd.op].push(cmd);});
+  // Compute analysis
+  cmdAnalysis={};
+  Object.keys(terrain).forEach(op=>{
+    const tCount=terrain[op].length, cCount=cmdByOp[op].length;
+    const diff=tCount-cCount;
+    cmdAnalysis[op]={
+      terrain:tCount,
+      commandes:cCount,
+      diff:diff,
+      surplus:diff>0,
+      positions:terrain[op],
+      color:OP_TO_COLOR[op]
+    };
+  });
+  renderCmdResult();
+}
+
+function renderCmdResult(){
+  document.getElementById('cmd-empty').style.display='none';
+  document.getElementById('cmd-result').style.display='block';
+  document.getElementById('cmd-fname').textContent=cmdData.fileName+' — '+cmdData.commandes.length+' commandes';
+  // Render comparatif cards
+  let cmpHtml='';
+  Object.keys(OP_COLORS).forEach(op=>{
+    const a=cmdAnalysis[op],col=OP_COLORS[op];
+    const surplus=a.surplus;
+    cmpHtml += '<div style="background:#fff;border:1px solid var(--gray3);border-left:3px solid '+col.bd+';border-radius:0;padding:10px">'+
+      '<div style="font-size:10px;color:'+col.tx+';font-weight:700;letter-spacing:.5px">'+col.label+'</div>'+
+      '<div style="display:flex;align-items:baseline;gap:4px;margin-top:4px"><span style="font-size:18px;font-weight:700">'+a.terrain+'</span><span style="font-size:11px;color:var(--text4)">/ '+a.commandes+' cmd</span></div>'+
+      '<div style="font-size:11px;color:'+(surplus?'var(--red)':'var(--green)')+';margin-top:2px;font-weight:700">'+(surplus?'⚠ +'+a.diff+' surplus':(a.diff===0?'✓ Égal':'✓ '+a.diff+' OK'))+'</div>'+
+    '</div>';
+  });
+  document.getElementById('cmd-comparatif').innerHTML=cmpHtml;
+  // Total surplus alert
+  const totalSurplus=Object.values(cmdAnalysis).filter(a=>a.surplus).reduce((s,a)=>s+a.diff,0);
+  const opsSurplus=Object.values(cmdAnalysis).filter(a=>a.surplus).length;
+  const alertEl=document.getElementById('cmd-alert');
+  if(totalSurplus>0){
+    alertEl.style.display='block';
+    alertEl.innerHTML='⚠️ '+totalSurplus+' jarretière'+(totalSurplus>1?'s':'')+' en surplus à investiguer ('+opsSurplus+' opérateur'+(opsSurplus>1?'s':'')+' concerné'+(opsSurplus>1?'s':'')+')';
+  }else{
+    alertEl.style.display='block';
+    alertEl.style.background='var(--green-lt)';
+    alertEl.style.borderColor='rgba(26,124,62,.3)';
+    alertEl.style.color='var(--green)';
+    alertEl.innerHTML='✅ Aucun écart détecté — terrain conforme aux commandes';
+  }
+  // Per-op details cards (only those with surplus)
+  let detailsHtml='';
+  Object.keys(OP_COLORS).forEach(op=>{
+    const a=cmdAnalysis[op];
+    if(!a.surplus)return;
+    const col=OP_COLORS[op];
+    const positions=a.positions.slice().sort((a,b)=>{
+      if(a.tiroir!==b.tiroir)return parseInt(a.tiroir)-parseInt(b.tiroir);
+      return a.position.localeCompare(b.position);
+    });
+    let posHtml=positions.map(p=>'<div style="background:'+col.bg+';color:'+col.tx+';padding:5px 7px;border-radius:3px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:600">T'+p.tiroir+'·'+p.position+'</div>').join('');
+    detailsHtml+='<div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:12px 14px;margin-bottom:10px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+        '<span style="font-size:12px;font-weight:700">'+op+' — '+a.positions.length+' positions à investiguer</span>'+
+        '<span style="font-size:10px;padding:2px 8px;background:'+col.bg+';color:'+col.tx+';border-radius:4px;font-family:var(--mono)">+'+a.diff+' surplus</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:5px">'+posHtml+'</div>'+
+    '</div>';
+  });
+  document.getElementById('cmd-details').innerHTML=detailsHtml;
+  // Actions
+  document.getElementById('cmd-actions').style.display=totalSurplus>0?'flex':'none';
+}
+
+function clearCmd(){
+  if(!confirm('Supprimer l\'analyse des commandes ?'))return;
+  cmdData=null; cmdAnalysis=null;
+  document.getElementById('cmd-empty').style.display='block';
+  document.getElementById('cmd-result').style.display='none';
+  const fi=document.getElementById('cmd-file');if(fi)fi.value='';
+}
+
+function exportCmdCSV(){
+  if(!cmdAnalysis)return;
+  let csv='Operateur;Couleur;Tiroir;Position;SSN;Statut\n';
+  Object.keys(cmdAnalysis).forEach(op=>{
+    const a=cmdAnalysis[op];
+    if(!a.surplus)return;
+    a.positions.forEach(p=>{
+      csv+='"'+op+'";"'+a.color+'";"'+p.tiroir+'";"'+p.position+'";"'+(p.ssn||'')+'";"En surplus"\n';
+    });
+  });
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='analyse_surplus_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+}
+
+function exportCmdPDF(){
+  if(!cmdAnalysis)return;
+  const dateR=new Date().toLocaleString('fr-FR');
+  const totalSurplus=Object.values(cmdAnalysis).filter(a=>a.surplus).reduce((s,a)=>s+a.diff,0);
+  const refPM=document.getElementById('pm-fname').textContent.replace(/\.\w+$/,'')||'PM';
+  let cards='';
+  Object.keys(OP_COLORS).forEach(op=>{
+    const a=cmdAnalysis[op],col=OP_COLORS[op];
+    cards+='<div style="background:#fff;border:1px solid #e2e8f0;border-left:4px solid '+col.bd+';padding:12px;border-radius:6px">'+
+      '<div style="font-size:11px;color:'+col.tx+';font-weight:700;letter-spacing:.5px">'+col.label+'</div>'+
+      '<div style="display:flex;align-items:baseline;gap:6px;margin-top:6px"><span style="font-size:24px;font-weight:900">'+a.terrain+'</span><span style="font-size:11px;color:#94a3b8">/ '+a.commandes+' cmd</span></div>'+
+      '<div style="font-size:12px;color:'+(a.surplus?'#dc2626':'#15803d')+';margin-top:4px;font-weight:700">'+(a.surplus?'⚠ +'+a.diff+' surplus':(a.diff===0?'✓ Égal':'✓ '+a.diff+' OK'))+'</div>'+
+    '</div>';
+  });
+  let opDetails='';
+  Object.keys(OP_COLORS).forEach(op=>{
+    const a=cmdAnalysis[op];
+    if(!a.surplus)return;
+    const col=OP_COLORS[op];
+    const positions=a.positions.slice().sort((a,b)=>{
+      if(a.tiroir!==b.tiroir)return parseInt(a.tiroir)-parseInt(b.tiroir);
+      return a.position.localeCompare(b.position);
+    });
+    const rows=positions.map((p,i)=>'<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+'"><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700">T'+p.tiroir+'</td><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700;color:'+col.tx+'">'+p.position+'</td><td style="padding:6px 10px;font-size:10px;color:#64748b">'+(p.ssn||'—')+'</td><td style="padding:6px 10px;text-align:center"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+col.bd+';margin-right:4px"></span><span style="font-size:11px">'+a.color+'</span></td></tr>').join('');
+    opDetails+='<div style="margin-bottom:18px;page-break-inside:avoid">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;background:'+col.bg+';padding:10px 14px;border-radius:6px 6px 0 0;border:1px solid '+col.bd+';border-bottom:none">'+
+        '<div style="font-size:13px;font-weight:800;color:'+col.tx+'">'+op+' — '+positions.length+' positions à investiguer</div>'+
+        '<div style="font-size:11px;font-weight:700;padding:3px 10px;background:#fff;color:'+col.tx+';border-radius:4px;border:1px solid '+col.bd+'">+'+a.diff+' surplus</div>'+
+      '</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;border:1px solid '+col.bd+'"><thead><tr style="background:#0f172a;color:#fff"><th style="padding:7px 10px;text-align:center;font-size:11px">Tiroir</th><th style="padding:7px 10px;text-align:center;font-size:11px">Position</th><th style="padding:7px 10px;text-align:left;font-size:11px">SSN</th><th style="padding:7px 10px;text-align:center;font-size:11px">Couleur</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '</div>';
+  });
+  const html='<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport surplus · '+refPM+'</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;background:#fff;color:#0f172a;font-size:12px;padding:18px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:0}@page{margin:12mm;size:A4}}</style></head><body>'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a">'+
+      '<div><div style="font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#003087;margin-bottom:4px">Rapport surplus jarretières</div><div style="font-size:22px;font-weight:900;color:#0f172a;letter-spacing:-.5px">'+refPM+'</div><div style="font-size:11px;color:#64748b;margin-top:3px">Analyse comparative terrain vs commandes opérateurs</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Généré le '+dateR+'</div></div>'+
+      '<div style="background:#E2001A;color:#fff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:4px">SFR</div>'+
+    '</div>'+
+    '<div style="background:'+(totalSurplus>0?'#fef3c7':'#dcfce7')+';border:1px solid '+(totalSurplus>0?'#fde047':'#86efac')+';border-radius:8px;padding:12px 16px;margin-bottom:16px"><div style="font-size:13px;font-weight:700;color:'+(totalSurplus>0?'#854d0e':'#15803d')+'">'+(totalSurplus>0?'⚠️ '+totalSurplus+' jarretière'+(totalSurplus>1?'s':'')+' en surplus détectée'+(totalSurplus>1?'s':''):'✅ Aucun écart détecté')+'</div></div>'+
+    '<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Comparatif par opérateur</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px">'+cards+'</div>'+
+    (opDetails?'<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-bottom:5px;border-bottom:2px solid #0f172a">Détail des positions à investiguer</div>'+opDetails:'')+
+    '<script>window.onload=function(){window.print()};<\/script></body></html>';
+  const w=window.open('','_blank');
+  if(!w){alert('Autorisez les pop-ups.');return;}
+  w.document.write(html);w.document.close();
 }
 function loadPMFile(file) {
   if(!file)return;
