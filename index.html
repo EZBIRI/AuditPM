@@ -881,6 +881,17 @@ console.log('Supabase client initialized:', SUPABASE_URL);
                 </div>
               </div>
 
+              <div class="cabinet">
+                <div class="cabinet-hdr">
+                  <span class="cabinet-title" id="pm-cab-title">ARMOIRE PM</span>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn-sm" onclick="pmAll(true)">Tout ouvrir</button>
+                    <button class="btn-sm" onclick="pmAll(false)">Tout fermer</button>
+                  </div>
+                </div>
+                <div class="cabinet-body" id="pm-body"></div>
+              </div>
+
               <!-- ═══ COMMANDES MODULE ═══ -->
               <div id="cmd-module" style="margin-bottom:14px">
                 <div style="font-size:11px;color:var(--blue-mid);margin:0 0 8px;font-family:var(--mono);letter-spacing:.5px;font-weight:600;text-transform:uppercase">━━ Analyse commandes opérateurs ━━</div>
@@ -909,16 +920,7 @@ console.log('Supabase client initialized:', SUPABASE_URL);
                 </div>
               </div>
 
-              <div class="cabinet">
-                <div class="cabinet-hdr">
-                  <span class="cabinet-title" id="pm-cab-title">ARMOIRE PM</span>
-                  <div style="display:flex;gap:6px">
-                    <button class="btn-sm" onclick="pmAll(true)">Tout ouvrir</button>
-                    <button class="btn-sm" onclick="pmAll(false)">Tout fermer</button>
-                  </div>
-                </div>
-                <div class="cabinet-body" id="pm-body"></div>
-              </div>
+              
             </div>
             <div id="pm-empty" style="text-align:center;padding:24px;color:var(--text4);font-size:12px;font-family:var(--mono)">Déposez un fichier PM ci-dessus</div>
           </div>
@@ -2176,7 +2178,8 @@ function exportCmdPDF(){
   if(!cmdAnalysis)return;
   const dateR=new Date().toLocaleString('fr-FR');
   const totalSurplus=Object.values(cmdAnalysis).filter(a=>a.surplus).reduce((s,a)=>s+a.diff,0);
-  const refPM=document.getElementById('pm-fname').textContent.replace(/\.\w+$/,'')||'PM';
+  const currentMission=selectedMissionId?missions.find(x=>x.id===selectedMissionId):null;
+  const refPM=currentMission?.ref_pm||document.getElementById('pm-fname').textContent.replace(/\.\w+$/,'')||'PM';
   let cards='';
   Object.keys(OP_COLORS).forEach(op=>{
     const a=cmdAnalysis[op],col=OP_COLORS[op];
