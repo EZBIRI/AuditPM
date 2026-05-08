@@ -1706,12 +1706,13 @@ function renderMissionDetail(m) {
       ${m.note ? `<div class="md-note"><div class="md-note-l">Instructions BE</div>${m.note}</div>` : ''}
       <div class="md-actions">
         ${m.statut==='attente' ? `<button class="btn-start" onclick="startAudit('${m.id}')">▶ Démarrer l'audit</button>` : ''}
-        ${m.statut==='en-cours' ? `<button class="btn-start" onclick="startAudit('${m.id}')" style="background:linear-gradient(135deg,#003087,#1565C0)">📂 Charger les PBO</button>` : ''}
+        ${m.statut==='en-cours' ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--blue-lt);border:1px solid rgba(0,48,135,.2);border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;color:var(--blue);font-size:13px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue);animation:pulse 2s infinite"></span>En cours</div>` : ''}
         ${m.statut==='en-cours' ? `<button class="btn-done" onclick="updateMissionStatus('${m.id}','termine');renderMissionDetail(missions.find(x=>x.id==='${m.id}'));renderTechMissions()">✓ Marquer terminé</button>` : ''}
         ${isDone ? `<button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:#F59E0B;color:#fff;border:none" onclick="reopenMission('${m.id}')">↩ Reprendre la mission</button>` : ''}
-        ${(m.pbo_data?.length > 0 && m.pbo_data.some(p => p.audite || p.fibres?.some(f => f.conformite !== 'Non verifie'))) ? `<button class="btn-mc rapport" style="font-size:13px;padding:10px 18px;font-weight:700" onclick="openRapport('${m.id}')">📊 Voir le rapport</button>
-        <button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:var(--red);color:#fff;border:none" onclick="exportRapportPDF('${m.id}')">📄 Export PDF</button>
-        ${isDone ? `<button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:var(--blue);color:#fff;border:none" onclick="exportMissionCSV('${m.id}')">⬇ Export CSV</button>` : ''}` : ''}
+        ${(m.pbo_data?.length > 0 && m.pbo_data.some(p => p.audite || p.fibres?.some(f => f.conformite !== 'Non verifie'))) ? `<button class="btn-mc rapport" style="font-size:13px;padding:10px 18px;font-weight:700" onclick="openRapport('${m.id}')">📊 Rapport PBO</button>
+        <button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:var(--red);color:#fff;border:none" onclick="exportRapportPDF('${m.id}')">📄 PDF PBO</button>
+        ${isDone ? `<button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:var(--blue);color:#fff;border:none" onclick="exportMissionCSV('${m.id}')">⬇ CSV</button>` : ''}` : ''}
+        ${m.pm_data ? `<button class="btn-mc rapport" style="font-size:13px;padding:10px 18px;font-weight:700;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none" onclick="openRapportPM('${m.id}')">📄 Rapport PM</button>` : ''}
       </div>
       ${isDone ? '<div style="font-size:11px;color:var(--green);font-weight:700;padding:8px 12px;background:var(--green-lt);border-radius:6px;text-align:center;margin-top:10px">✅ Mission terminée — Vous pouvez la rouvrir si besoin</div>' : ''}
     </div>`;
