@@ -2063,12 +2063,18 @@ function analyseCommandes(){
   Object.keys(terrain).forEach(op=>{
     const tCount=terrain[op].length, cCount=cmdByOp[op].length;
     const diff=tCount-cCount;
+    // Filter: only positions with SSN = "Pas de N°" are potential phantom jarretieres
+    const positionsPasDeNo=terrain[op].filter(p=>{
+      const s=(p.ssn||'').toLowerCase().trim();
+      return s.includes('pas de n')||s.includes('non traite')||s==='';
+    });
     cmdAnalysis[op]={
       terrain:tCount,
       commandes:cCount,
       diff:diff,
       surplus:diff>0,
       positions:terrain[op],
+      positionsPasDeNo:positionsPasDeNo,
       color:OP_TO_COLOR[op]
     };
   });
@@ -2111,17 +2117,29 @@ function renderCmdResult(){
     const a=cmdAnalysis[op];
     if(!a.surplus)return;
     const col=OP_COLORS[op];
-    const positions=a.positions.slice().sort((a,b)=>{
-      if(a.tiroir!==b.tiroir)return parseInt(a.tiroir)-parseInt(b.tiroir);
-      return a.position.localeCompare(b.position);
+    // Use filtered positions (only those with "Pas de N°" / empty SSN)
+    const positions=a.positionsPasDeNo.slice().sort((x,y)=>{
+      if(x.tiroir!==y.tiroir)return parseInt(x.tiroir)-parseInt(y.tiroir);
+      return x.position.localeCompare(y.position);
     });
-    let posHtml=positions.map(p=>'<div style="background:'+col.bg+';color:'+col.tx+';padding:5px 7px;border-radius:3px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:600">T'+p.tiroir+'·'+p.position+'</div>').join('');
+    if(positions.length===0){
+      detailsHtml+='<div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:12px 14px;margin-bottom:10px">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
+          '<span style="font-size:12px;font-weight:700">'+op+' — Aucune position sans n°</span>'+
+          '<span style="font-size:10px;padding:2px 8px;background:'+col.bg+';color:'+col.tx+';border-radius:4px;font-family:var(--mono)">+'+a.diff+' surplus</span>'+
+        '</div>'+
+        '<div style="font-size:11px;color:var(--text4);font-style:italic">Toutes les positions de cet opérateur ont un SSN identifié — investigation manuelle requise</div>'+
+      '</div>';
+      return;
+    }
+    let posHtml=positions.map(p=>'<div title="SSN: '+(p.ssn||'—')+'" style="background:'+col.bg+';color:'+col.tx+';padding:5px 7px;border-radius:3px;text-align:center;font-family:var(--mono);font-size:10px;font-weight:600">T'+p.tiroir+'·'+p.position+'</div>').join('');
     detailsHtml+='<div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:12px 14px;margin-bottom:10px">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
-        '<span style="font-size:12px;font-weight:700">'+op+' — '+a.positions.length+' positions à investiguer</span>'+
+        '<span style="font-size:12px;font-weight:700">'+op+' — '+positions.length+' position'+(positions.length>1?'s':'')+' sans n° à investiguer</span>'+
         '<span style="font-size:10px;padding:2px 8px;background:'+col.bg+';color:'+col.tx+';border-radius:4px;font-family:var(--mono)">+'+a.diff+' surplus</span>'+
       '</div>'+
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:5px">'+posHtml+'</div>'+
+      '<div style="font-size:10px;color:var(--text4);margin-top:8px;font-style:italic">⚠️ Box potentiellement éteintes — à vérifier sur le terrain</div>'+
     '</div>';
   });
   document.getElementById('cmd-details').innerHTML=detailsHtml;
@@ -2143,8 +2161,8 @@ function exportCmdCSV(){
   Object.keys(cmdAnalysis).forEach(op=>{
     const a=cmdAnalysis[op];
     if(!a.surplus)return;
-    a.positions.forEach(p=>{
-      csv+='"'+op+'";"'+a.color+'";"'+p.tiroir+'";"'+p.position+'";"'+(p.ssn||'')+'";"En surplus"\n';
+    a.positionsPasDeNo.forEach(p=>{
+      csv+='"'+op+'";"'+a.color+'";"'+p.tiroir+'";"'+p.position+'";"'+(p.ssn||'')+'";"Surplus sans n°"\n';
     });
   });
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
@@ -2173,15 +2191,24 @@ function exportCmdPDF(){
     const a=cmdAnalysis[op];
     if(!a.surplus)return;
     const col=OP_COLORS[op];
-    const positions=a.positions.slice().sort((a,b)=>{
-      if(a.tiroir!==b.tiroir)return parseInt(a.tiroir)-parseInt(b.tiroir);
-      return a.position.localeCompare(b.position);
+    const positions=a.positionsPasDeNo.slice().sort((x,y)=>{
+      if(x.tiroir!==y.tiroir)return parseInt(x.tiroir)-parseInt(y.tiroir);
+      return x.position.localeCompare(y.position);
     });
+    if(positions.length===0){
+      opDetails+='<div style="margin-bottom:18px;page-break-inside:avoid">'+
+        '<div style="background:'+col.bg+';padding:10px 14px;border-radius:6px;border:1px solid '+col.bd+'">'+
+          '<div style="font-size:13px;font-weight:800;color:'+col.tx+'">'+op+' — Aucune position sans n°</div>'+
+          '<div style="font-size:11px;color:#64748b;margin-top:4px;font-style:italic">+'+a.diff+' surplus avec SSN identifié — investigation manuelle requise</div>'+
+        '</div>'+
+      '</div>';
+      return;
+    }
     const rows=positions.map((p,i)=>'<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+'"><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700">T'+p.tiroir+'</td><td style="padding:6px 10px;font-family:monospace;font-size:11px;text-align:center;font-weight:700;color:'+col.tx+'">'+p.position+'</td><td style="padding:6px 10px;font-size:10px;color:#64748b">'+(p.ssn||'—')+'</td><td style="padding:6px 10px;text-align:center"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+col.bd+';margin-right:4px"></span><span style="font-size:11px">'+a.color+'</span></td></tr>').join('');
     opDetails+='<div style="margin-bottom:18px;page-break-inside:avoid">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;background:'+col.bg+';padding:10px 14px;border-radius:6px 6px 0 0;border:1px solid '+col.bd+';border-bottom:none">'+
-        '<div style="font-size:13px;font-weight:800;color:'+col.tx+'">'+op+' — '+positions.length+' positions à investiguer</div>'+
-        '<div style="font-size:11px;font-weight:700;padding:3px 10px;background:#fff;color:'+col.tx+';border-radius:4px;border:1px solid '+col.bd+'">+'+a.diff+' surplus</div>'+
+        '<div style="font-size:13px;font-weight:800;color:'+col.tx+'">'+op+' — '+positions.length+' position'+(positions.length>1?'s':'')+' sans n° à investiguer</div>'+
+        '<div style="font-size:11px;font-weight:700;padding:3px 10px;background:#fff;color:'+col.tx+';border-radius:4px;border:1px solid '+col.bd+'">+'+a.diff+' surplus total</div>'+
       '</div>'+
       '<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;border:1px solid '+col.bd+'"><thead><tr style="background:#0f172a;color:#fff"><th style="padding:7px 10px;text-align:center;font-size:11px">Tiroir</th><th style="padding:7px 10px;text-align:center;font-size:11px">Position</th><th style="padding:7px 10px;text-align:left;font-size:11px">SSN</th><th style="padding:7px 10px;text-align:center;font-size:11px">Couleur</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '</div>';
