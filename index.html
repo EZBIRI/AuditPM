@@ -3416,7 +3416,7 @@ function exportPMPDF(){
 // ══════════════════════════════════════════════
 function updatePBOStats(){
   const total=pboData.length,fibres=pboData.reduce((s,p)=>s+p.fibres.length,0);
-  const actif=pboData.filter(p=>p.fibres.some(f=>f.client==='Oui')).length;
+  const actif=pboData.reduce((s,p)=>s+p.fibres.filter(f=>f.client==='Oui').length,0);
   const amod=pboData.reduce((s,p)=>s+p.fibres.filter(f=>f.conformite==='A modifier').length,0);
   const aud=pboData.filter(p=>p.audite).length;
   document.getElementById('pbo-stats').innerHTML=scCard('PBO',total,'var(--blue)')+scCard('Fibres',fibres)+scCard('Actifs',actif,'var(--green)')+scCard('Modifier',amod,'var(--red)')+scCard('Audités',aud+'/'+total,aud===total&&total>0?'var(--green)':'var(--text)');
