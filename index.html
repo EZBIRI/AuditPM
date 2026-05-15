@@ -1825,12 +1825,13 @@ function beParsePBO0(file) {
     const h0 = lines[0];
     const sep = (h0.split(';').length > h0.split(',').length) ? ';' : ',';
     const hdr = splitLine(h0, sep).map(h => h.toLowerCase().trim());
-    function ci(n) { return hdr.findIndex(h => h.includes(n.toLowerCase())); }
+    // Match exact pour éviter ambiguïtés (ex: 'adresse' vs 'ordre_adresse')
+    function ce(name) { return hdr.indexOf(name.toLowerCase()); }
     const arrets = {};
     for (let i = 1; i < lines.length; i++) {
       const ln = lines[i].trim(); if (!ln) continue;
       const p = splitLine(ln, sep); if (p.length < 4) continue;
-      function gv(n) { const idx=ci(n); return idx>=0?(p[idx]||'').trim():''; }
+      function gv(name) { const idx=ce(name); return idx>=0?(p[idx]||'').trim():''; }
       const pboId = gv('pbo_id'); if (!pboId) continue;
       const ordre = parseInt(gv('ordre_pbo')) || 0;
       if (!arrets[pboId]) {
@@ -1842,6 +1843,7 @@ function beParsePBO0(file) {
           verdict: gv('pbo_verdict'),
           verdict_label: gv('pbo_verdict_label'),
           nb_logements: parseInt(gv('pbo_nb_logements_total')) || 0,
+          cas_presents: gv('pbo_cas_presents'),
           action: gv('pbo_action'),
           google_maps: gv('pbo_google_maps'),
           streetview: gv('pbo_streetview'),
@@ -1851,6 +1853,7 @@ function beParsePBO0(file) {
       }
       arrets[pboId].adresses.push({
         ordre: parseInt(gv('ordre_adresse')) || 0,
+        imm_id: gv('imm_id'),
         adresse: gv('adresse'),
         code_postal: gv('code_postal'),
         commune: gv('commune'),
@@ -1858,7 +1861,10 @@ function beParsePBO0(file) {
         lng: parseFloat(gv('imm_lng')) || 0,
         nb_logements: parseInt(gv('nb_logements_ipe')) || 0,
         type_immeuble: gv('type_immeuble'),
-        cas: gv('adresse_cas')
+        code_adresse: gv('code_adresse'),
+        cas: gv('adresse_cas'),
+        google_maps: gv('imm_google_maps'),
+        streetview: gv('imm_streetview')
       });
     }
     bePBO0Parsed = Object.values(arrets).sort((a,b)=>a.ordre-b.ordre);
@@ -2241,15 +2247,21 @@ function renderPBO0List(arrets, readOnly) {
 
 function renderPBO0Card(a, idx, isNext, readOnly) {
   const v = a.terrain && a.terrain.statut ? pbo0VerdictMeta(a.terrain.statut) : null;
+  // Adresse PBO = adresse de référence (1ère adresse ou ordre_adresse=1)
+  const adrPBO = a.adresses.find(x => x.ordre === 1) || a.adresses[0] || {};
+  const adrPBOTxt = adrPBO.adresse ? `${adrPBO.adresse}, ${adrPBO.code_postal || ''} ${adrPBO.commune || ''}`.trim() : '—';
   const adrsHtml = a.adresses.map((ad, i) => `
     <div style="background:#F4F6FA;border-left:3px solid var(--blue);padding:8px 10px;margin-top:${i===0?'10':'6'}px;border-radius:4px">
-      <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.3">${ad.adresse}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)">
-        <b>${ad.code_postal}</b> ${ad.commune}
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:6px;margin-bottom:4px">
+        <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.3;flex:1">${ad.adresse || '—'}</div>
+        ${ad.imm_id ? `<span style="font-size:9px;font-family:var(--mono);color:var(--text4);background:#fff;padding:2px 5px;border-radius:3px;border:1px solid var(--gray3);white-space:nowrap">${ad.imm_id}</span>` : ''}
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:5px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:5px;font-family:var(--mono)">
+        <b>${ad.code_postal || ''}</b> ${ad.commune || ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
         <span style="font-size:10px;background:#fff;border:1px solid var(--gray3);padding:2px 7px;border-radius:10px;color:var(--text3);font-weight:700">🏠 ${ad.nb_logements} log.</span>
-        <span style="font-size:10px;background:#fff;border:1px solid var(--gray3);padding:2px 7px;border-radius:10px;color:var(--text3)">${ad.type_immeuble}</span>
+        <span style="font-size:10px;background:#fff;border:1px solid var(--gray3);padding:2px 7px;border-radius:10px;color:var(--text3)">${ad.type_immeuble || '—'}</span>
         ${ad.cas ? `<span style="font-size:10px;background:#FEF3C7;color:#B45309;padding:2px 7px;border-radius:10px;font-weight:700">${ad.cas}</span>` : ''}
       </div>
     </div>
@@ -2262,9 +2274,35 @@ function renderPBO0Card(a, idx, isNext, readOnly) {
         <div style="font-size:11px;font-weight:700;color:var(--blue);font-family:var(--mono);letter-spacing:.5px">📍 Arrêt N°${a.ordre || (idx+1)}${isNext?' · PROCHAIN':''}</div>
         ${v ? `<span style="background:${v.bg};color:${v.color};padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700">${v.emoji} ${v.label}</span>` : ''}
       </div>
-      <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:4px">${a.pbo_id}</div>
-      <div style="font-size:11px;color:var(--text4);margin-bottom:4px">${a.verdict_label || ''} · Total ${a.nb_logements} logements</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:6px">${a.pbo_id}</div>
+      <div style="background:#003087;color:#fff;padding:8px 10px;border-radius:6px;margin-bottom:6px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;opacity:.85;margin-bottom:2px">Adresse PBO</div>
+        <div style="font-size:12px;font-weight:700;line-height:1.3">${adrPBOTxt}</div>
+        <div style="font-size:10px;opacity:.85;font-family:var(--mono);margin-top:3px">GPS: ${a.lat.toFixed(6)}, ${a.lng.toFixed(6)}</div>
+      </div>
+      <div style="font-size:11px;color:var(--text4);margin-bottom:4px">${a.verdict_label || ''} · Total ${a.nb_logements} logements · ${a.adresses.length} immeuble${a.adresses.length>1?'s':''}</div>
       ${adrsHtml}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
+        <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
+        <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
+      </div>
+      ${readOnly ? '' : `
+        <div style="font-size:10px;color:var(--text3);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Verdict terrain</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <button onclick="setPBO0Verdict(${idx},'deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #16A34A;background:${a.terrain&&a.terrain.statut==='deploye'?'#16A34A':'#fff'};color:${a.terrain&&a.terrain.statut==='deploye'?'#fff':'#16A34A'};border-radius:6px;cursor:pointer">✅ Déployé</button>
+          <button onclick="setPBO0Verdict(${idx},'non_deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #B45309;background:${a.terrain&&a.terrain.statut==='non_deploye'?'#B45309':'#fff'};color:${a.terrain&&a.terrain.statut==='non_deploye'?'#fff':'#B45309'};border-radius:6px;cursor:pointer">⚠️ Non déployé</button>
+          <button onclick="setPBO0Verdict(${idx},'coord_modif')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #003087;background:${a.terrain&&a.terrain.statut==='coord_modif'?'#003087':'#fff'};color:${a.terrain&&a.terrain.statut==='coord_modif'?'#fff':'#003087'};border-radius:6px;cursor:pointer">📍 Coord. à modif</button>
+          <button onclick="setPBO0Verdict(${idx},'introuvable')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #DC2626;background:${a.terrain&&a.terrain.statut==='introuvable'?'#DC2626':'#fff'};color:${a.terrain&&a.terrain.statut==='introuvable'?'#fff':'#DC2626'};border-radius:6px;cursor:pointer">❌ Introuvable</button>
+        </div>
+        ${a.terrain && a.terrain.statut==='coord_modif' ? `
+          <div style="margin-top:8px;padding:8px;background:#DBEAFE;border-radius:6px">
+            <button onclick="captureGPS(${idx})" style="width:100%;padding:9px;font-size:11px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:6px;cursor:pointer">📍 Capturer ma position GPS</button>
+            ${a.terrain.lat_corr ? `<div style="font-size:10px;color:var(--blue);margin-top:6px;font-family:var(--mono)">Nouvelle position: ${a.terrain.lat_corr.toFixed(6)}, ${a.terrain.lng_corr.toFixed(6)}</div>` : ''}
+          </div>
+        ` : ''}
+        <textarea id="pbo0-note-${idx}" placeholder="Note terrain (optionnel)..." onblur="savePBO0Note(${idx}, this.value)" style="width:100%;margin-top:8px;font-size:11px;min-height:50px;padding:8px;border:1px solid var(--gray3);border-radius:6px;font-family:var(--mono);resize:vertical">${a.terrain && a.terrain.note ? a.terrain.note : ''}</textarea>
+      `}
+    </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
         <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
         <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
