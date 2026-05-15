@@ -14,6 +14,8 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <title>PM Audit Platform · XP Fibre SFR</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800;900&display=swap');
@@ -896,6 +898,7 @@ console.log('Supabase client initialized:', SUPABASE_URL);
                   <option value="PM">Visuel PM</option>
                   <option value="PBO">Zone arrière PBO</option>
                   <option value="HS">🔍 Audit fibres HS</option>
+                  <option value="PBO0">🗺️ PBO à 0 (tournée)</option>
                 </select>
               </div>
             </div>
@@ -1451,16 +1454,20 @@ function renderActivityFeed(targetElId) {
       const tech = m.tech || {};
       const techName = (tech.prenom || '') + ' ' + (tech.nom || '') || 'Non assigné';
       const isHS = m.type_audit === 'HS';
+      const isPBO0 = m.type_audit === 'PBO0';
+      const pbo0Arrets = isPBO0 ? (m.pm_data?.pbo0_arrets || []) : [];
+      const pbo0Total = pbo0Arrets.length;
+      const pbo0Traites = pbo0Arrets.filter(a => a.terrain && a.terrain.statut).length;
       const totalFibres = m.pbo_data?.reduce((s,p)=>s+(p.fibres?.length||0),0) || 0;
       const conformes = m.pbo_data?.reduce((s,p)=>s+(p.fibres?.filter(f=>f.conformite==='Conforme').length||0),0) || 0;
-      // Pour les missions HS : avancement = fibres auditées / total fibres
-      // Pour les autres : avancement = PBO audités / total PBO
       const totalPbo = m.pbo_data?.length || 0;
       const auditesPbo = m.pbo_data?.filter(p => p.audite).length || 0;
       const auditesHS = isHS ? Object.keys(m.hs_fibres||{}).length : 0;
-      const pct = isHS 
-        ? (totalFibres > 0 ? Math.round(auditesHS/totalFibres*100) : 0)
-        : (totalPbo > 0 ? Math.round(auditesPbo/totalPbo*100) : 0);
+      const pct = isPBO0
+        ? (pbo0Total > 0 ? Math.round(pbo0Traites/pbo0Total*100) : 0)
+        : isHS 
+          ? (totalFibres > 0 ? Math.round(auditesHS/totalFibres*100) : 0)
+          : (totalPbo > 0 ? Math.round(auditesPbo/totalPbo*100) : 0);
       const startDate = m.date_demarrage ? new Date(m.date_demarrage).toLocaleDateString('fr-FR') : '—';
       return `<div style="background:#fff;border:1px solid var(--gray3);border-left:3px solid var(--blue);border-radius:8px;padding:14px 16px;margin-bottom:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
@@ -1736,6 +1743,7 @@ function missionRow(m) {
         ${hasReport ? `<button class="btn-mc rapport" onclick="openRapport('${m.id}')">📊 Rapport PBO</button>` : ''}
         ${(m.pm_data || (m.type_audit==='HS' && m.pbo_data?.length>0)) ? `<button class="btn-mc rapport" style="background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none" onclick="openRapportPM('${m.id}')">📄 Rapport ${m.type_audit==='HS'?'HS':'PM'}</button>` : ''}
         ${(currentUser?.role==='admin' || currentUser?.role==='be' || m.statut === 'termine') && (m.pbo_data?.length>0) ? `<button class="btn-mc" style="background:var(--blue);color:#fff;border:none" onclick="exportMissionCSV('${m.id}')">⬇ CSV</button>` : ''}
+        ${(currentUser?.role==='admin' || currentUser?.role==='be') && m.type_audit==='PBO0' && m.pm_data?.pbo0_arrets?.length > 0 ? `<button class="btn-mc" style="background:var(--blue);color:#fff;border:none" onclick="exportPBO0CSV('${m.id}')">⬇ CSV tournée</button>` : ''}
         ${(currentUser?.role === 'admin' || currentUser?.role === 'be') ? `<button class="btn-mc" style="background:var(--yellow-lt,#FEF3C7);color:#B45309;border:1px solid #FCD34D" onclick="openEditMission('${m.id}')">✎ Modifier</button>
         <button class="btn-mc danger" onclick="deleteMission('${m.id}')">✕</button>` : ''}
       </div>
@@ -1746,13 +1754,17 @@ function missionRow(m) {
 function togglePBOUpload() {
   const type = document.getElementById('f-type').value;
   const fg = document.getElementById('fg-pbo-file');
-  if (type === 'PBO' || type === 'Complet' || type === 'HS') {
+  if (type === 'PBO' || type === 'Complet' || type === 'HS' || type === 'PBO0') {
     fg.style.display = 'block';
-    // Update label based on type
     const label = fg.querySelector('.form-label');
-    if (label) {
-      if (type === 'HS') label.textContent = 'Fichier ROP (audit fibres HS) *';
-      else label.textContent = 'Fichier zone arrière (ROP/SNIF) *';
+    const fi = document.getElementById('be-pbo-file');
+    if (type === 'PBO0') {
+      if (label) label.textContent = 'Fichier tournée PBO à 0 (CSV) *';
+      // Switch onchange to PBO0 parser
+      if (fi) fi.setAttribute('onchange','beParsePBO0(this.files[0])');
+    } else {
+      if (label) label.textContent = (type === 'HS') ? 'Fichier ROP (audit fibres HS) *' : 'Fichier zone arrière (ROP/SNIF) *';
+      if (fi) fi.setAttribute('onchange','beParsePBO(this.files[0])');
     }
   } else {
     fg.style.display = 'none';
@@ -1802,6 +1814,66 @@ function beParsePBO(file) {
   reader.readAsText(file, 'Windows-1252');
 }
 
+// ── PBO à 0 (tournée) ──
+let bePBO0Parsed = null;
+function beParsePBO0(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const txt = e.target.result;
+    const lines = txt.split(/\r?\n/);
+    const h0 = lines[0];
+    const sep = (h0.split(';').length > h0.split(',').length) ? ';' : ',';
+    const hdr = splitLine(h0, sep).map(h => h.toLowerCase().trim());
+    function ci(n) { return hdr.findIndex(h => h.includes(n.toLowerCase())); }
+    const arrets = {};
+    for (let i = 1; i < lines.length; i++) {
+      const ln = lines[i].trim(); if (!ln) continue;
+      const p = splitLine(ln, sep); if (p.length < 4) continue;
+      function gv(n) { const idx=ci(n); return idx>=0?(p[idx]||'').trim():''; }
+      const pboId = gv('pbo_id'); if (!pboId) continue;
+      const ordre = parseInt(gv('ordre_pbo')) || 0;
+      if (!arrets[pboId]) {
+        arrets[pboId] = {
+          pbo_id: pboId,
+          ordre: ordre,
+          lat: parseFloat(gv('pbo_lat')) || 0,
+          lng: parseFloat(gv('pbo_lng')) || 0,
+          verdict: gv('pbo_verdict'),
+          verdict_label: gv('pbo_verdict_label'),
+          nb_logements: parseInt(gv('pbo_nb_logements_total')) || 0,
+          action: gv('pbo_action'),
+          google_maps: gv('pbo_google_maps'),
+          streetview: gv('pbo_streetview'),
+          adresses: [],
+          terrain: { statut: null, lat_corr: null, lng_corr: null, note: '', date: null }
+        };
+      }
+      arrets[pboId].adresses.push({
+        ordre: parseInt(gv('ordre_adresse')) || 0,
+        adresse: gv('adresse'),
+        code_postal: gv('code_postal'),
+        commune: gv('commune'),
+        lat: parseFloat(gv('imm_lat')) || 0,
+        lng: parseFloat(gv('imm_lng')) || 0,
+        nb_logements: parseInt(gv('nb_logements_ipe')) || 0,
+        type_immeuble: gv('type_immeuble'),
+        cas: gv('adresse_cas')
+      });
+    }
+    bePBO0Parsed = Object.values(arrets).sort((a,b)=>a.ordre-b.ordre);
+    bePBOFileName = file.name;
+    const count = bePBO0Parsed.length;
+    const totalAdr = bePBO0Parsed.reduce((s,a)=>s+a.adresses.length,0);
+    document.getElementById('be-pbo-state').innerHTML =
+      '<div style="font-size:22px;margin-bottom:6px">🗺️</div>' +
+      '<div style="font-size:12px;font-weight:700;color:var(--green)">' + file.name + '</div>' +
+      '<div style="font-size:10px;color:var(--text3);margin-top:4px;font-family:var(--mono)">' + count + ' PBO · ' + totalAdr + ' adresses</div>' +
+      '<div style="font-size:10px;color:var(--text4);margin-top:2px;font-family:var(--mono)">Cliquer pour changer le fichier</div>';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
 async function createMission() {
   const ref = document.getElementById('f-ref').value.trim();
   if (!ref) { document.getElementById('f-ref').focus(); return; }
@@ -1809,6 +1881,10 @@ async function createMission() {
   const msgEl = document.getElementById('create-mission-msg');
   if ((type === 'PBO' || type === 'Complet' || type === 'HS') && !bePBOParsed) {
     msgEl.innerHTML = '<div class="alert alert-error">Veuillez charger le fichier ROP/SNIF.</div>';
+    return;
+  }
+  if (type === 'PBO0' && !bePBO0Parsed) {
+    msgEl.innerHTML = '<div class="alert alert-error">Veuillez charger le fichier tournée PBO à 0.</div>';
     return;
   }
   msgEl.innerHTML = '<div class="alert alert-info"><span class="loading-spinner"></span>Création...</div>';
@@ -1826,7 +1902,9 @@ async function createMission() {
     note: document.getElementById('f-note').value.trim(),
     be_id: currentUser.id,
     tech_id: techId,
-    date_souhaitee: document.getElementById('f-date').value || null
+    date_souhaitee: document.getElementById('f-date').value || null,
+    pm_data: (type === 'PBO0' && bePBO0Parsed) ? { pbo0_arrets: bePBO0Parsed } : null,
+    pm_filename: (type === 'PBO0' && bePBO0Parsed) ? bePBOFileName : null
   }).select().single();
   if (error) { msgEl.innerHTML = '<div class="alert alert-error">Erreur : ' + error.message + '</div>'; return; }
   // Insert PBO data if present
@@ -1849,6 +1927,7 @@ async function createMission() {
   document.getElementById('f-tech-select').selectedIndex = 0;
   document.getElementById('f-date').valueAsDate = new Date();
   resetPBOUpload(); togglePBOUpload(); setPrio('haute');
+  bePBO0Parsed = null;
   setTimeout(() => { msgEl.innerHTML = ''; }, 3000);
   await loadMissions();
 }
@@ -2037,12 +2116,14 @@ async function selectMission(id) {
   const mission = missions.find(x => x.id === id);
   if (mission && mission.statut === 'en-cours') {
     selectedMissionId = id;
+    currentPBO0Mission = mission;
     await startAudit(id);
     return;
   }
   selectedMissionId = id;
   renderTechMissions();
   const m = missions.find(x => x.id === id);
+  currentPBO0Mission = m;
   renderMissionDetail(m);
 }
 
@@ -2050,6 +2131,8 @@ function renderMissionDetail(m) {
   const el = document.getElementById('tech-detail');
   if (!m) { el.innerHTML = '<div class="no-sel-msg"><div style="font-size:32px;margin-bottom:10px">👆</div><div style="font-size:13px;font-weight:700;color:var(--text3)">Sélectionnez une mission</div></div>'; return; }
   const isDone = m.statut === 'termine';
+  // ── Vue PBO0 (tournée) ──
+  if (m.type_audit === 'PBO0') { renderPBO0Detail(m); return; }
   el.innerHTML = `<div class="md-hdr">
       <div class="md-label">Mission · ${m.priorite?.toUpperCase()}</div>
       <div class="md-ref">${m.ref_pm}</div>
@@ -2086,6 +2169,229 @@ async function reopenMission(id){
   if(currentUser.role==='technicien')renderTechMissions();
 }
 
+// ══════════════════════════════════════════════
+// PBO0 — Tournée PBO à 0 (vue technicien)
+// ══════════════════════════════════════════════
+let pbo0Map = null;
+let pbo0MapMarkers = [];
+let pbo0View = 'list'; // 'list' ou 'map'
+
+function getPBO0Arrets(m) {
+  return (m.pm_data && m.pm_data.pbo0_arrets) ? m.pm_data.pbo0_arrets : [];
+}
+
+function pbo0VerdictMeta(v) {
+  const map = {
+    'deploye':    { label:'Déployé',           color:'#16A34A', bg:'#DCFCE7', emoji:'✅' },
+    'non_deploye':{ label:'Non déployé',       color:'#B45309', bg:'#FEF3C7', emoji:'⚠️' },
+    'coord_modif':{ label:'Coord. à modifier', color:'#003087', bg:'#DBEAFE', emoji:'📍' },
+    'introuvable':{ label:'Introuvable',       color:'#DC2626', bg:'#FEE2E2', emoji:'❌' }
+  };
+  return map[v] || null;
+}
+
+function renderPBO0Detail(m) {
+  const el = document.getElementById('tech-detail');
+  const isDone = m.statut === 'termine';
+  const arrets = getPBO0Arrets(m);
+  const total = arrets.length;
+  const traites = arrets.filter(a => a.terrain && a.terrain.statut).length;
+  const pct = total ? Math.round((traites/total)*100) : 0;
+  const isReadOnly = isDone || m.statut === 'attente';
+  el.innerHTML = `
+    <div class="md-hdr">
+      <div class="md-label">Mission · ${(m.priorite||'').toUpperCase()} · PBO à 0</div>
+      <div class="md-ref">${m.ref_pm}</div>
+      <div class="md-sub">📍 ${m.zone} · ${total} PBO à visiter</div>
+    </div>
+    <div class="md-body">
+      <div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--text3);font-family:var(--mono)">${traites} / ${total} traités · ${pct}%</div>
+          <div style="font-size:11px;color:var(--text4);font-family:var(--mono)">${m.statut==='en-cours'?'EN COURS':m.statut==='attente'?'EN ATTENTE':'TERMINÉ'}</div>
+        </div>
+        <div style="height:8px;background:var(--gray2);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#003087,#1565C0);transition:width .3s"></div>
+        </div>
+      </div>
+      ${m.statut==='attente' ? `<button class="btn-start" onclick="startAudit('${m.id}')">▶ Démarrer la tournée</button>` : ''}
+      ${m.statut==='en-cours' ? `
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn-mc ${pbo0View==='list'?'rapport':''}" style="flex:1;font-size:12px;padding:9px;font-weight:700${pbo0View==='list'?';background:var(--blue);color:#fff;border:none':''}" onclick="setPBO0View('list','${m.id}')">📋 Liste</button>
+          <button class="btn-mc ${pbo0View==='map'?'rapport':''}" style="flex:1;font-size:12px;padding:9px;font-weight:700${pbo0View==='map'?';background:var(--blue);color:#fff;border:none':''}" onclick="setPBO0View('map','${m.id}')">🗺️ Carte itinéraire</button>
+        </div>
+      ` : ''}
+      ${m.statut !== 'attente' ? `<div id="pbo0-content">${pbo0View==='map' ? renderPBO0Map() : renderPBO0List(arrets, isReadOnly)}</div>` : ''}
+      <div class="md-actions" style="margin-top:14px">
+        ${m.statut==='en-cours' ? `<button class="btn-done" onclick="finishPBO0Mission('${m.id}')">✓ Terminer la tournée</button>` : ''}
+        ${isDone ? `<button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:#F59E0B;color:#fff;border:none" onclick="reopenMission('${m.id}')">↩ Reprendre la tournée</button>` : ''}
+        ${(currentUser.role==='admin'||currentUser.role==='be') && traites>0 ? `<button class="btn-mc" style="font-size:13px;padding:10px 18px;font-weight:700;background:var(--blue);color:#fff;border:none" onclick="exportPBO0CSV('${m.id}')">⬇ CSV résultats</button>` : ''}
+      </div>
+    </div>
+  `;
+  if (pbo0View === 'map' && m.statut === 'en-cours') setTimeout(()=>initPBO0Map(arrets), 100);
+}
+
+function renderPBO0List(arrets, readOnly) {
+  if (!arrets.length) return '<div style="text-align:center;padding:30px;color:var(--text4);font-family:var(--mono);font-size:12px">Aucun PBO dans la tournée</div>';
+  // Prochain non traité
+  const nextIdx = arrets.findIndex(a => !a.terrain || !a.terrain.statut);
+  return arrets.map((a, idx) => renderPBO0Card(a, idx, idx===nextIdx, readOnly)).join('');
+}
+
+function renderPBO0Card(a, idx, isNext, readOnly) {
+  const v = a.terrain && a.terrain.statut ? pbo0VerdictMeta(a.terrain.statut) : null;
+  const adrsHtml = a.adresses.map(ad => `
+    <div style="font-size:11px;color:var(--text3);padding:4px 0;border-top:1px dashed var(--gray2);font-family:var(--mono)">
+      <b>${ad.adresse}</b> · ${ad.code_postal} ${ad.commune} · ${ad.nb_logements} log. · ${ad.type_immeuble}
+    </div>
+  `).join('');
+  const borderColor = v ? v.color : (isNext ? 'var(--blue)' : 'var(--gray3)');
+  const borderWidth = isNext ? '2px' : '1px';
+  return `
+    <div id="pbo0-card-${idx}" style="background:#fff;border:${borderWidth} solid ${borderColor};border-radius:8px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:var(--blue);font-family:var(--mono);letter-spacing:.5px">N°${a.ordre || (idx+1)}${isNext?' · PROCHAIN':''}</div>
+        ${v ? `<span style="background:${v.bg};color:${v.color};padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700">${v.emoji} ${v.label}</span>` : ''}
+      </div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:4px">${a.pbo_id}</div>
+      <div style="font-size:11px;color:var(--text4);margin-bottom:8px">${a.verdict_label || ''} · ${a.nb_logements} log.</div>
+      ${adrsHtml}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+        <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
+        <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
+      </div>
+      ${readOnly ? '' : `
+        <div style="font-size:10px;color:var(--text3);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Verdict terrain</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <button onclick="setPBO0Verdict(${idx},'deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #16A34A;background:${a.terrain&&a.terrain.statut==='deploye'?'#16A34A':'#fff'};color:${a.terrain&&a.terrain.statut==='deploye'?'#fff':'#16A34A'};border-radius:6px;cursor:pointer">✅ Déployé</button>
+          <button onclick="setPBO0Verdict(${idx},'non_deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #B45309;background:${a.terrain&&a.terrain.statut==='non_deploye'?'#B45309':'#fff'};color:${a.terrain&&a.terrain.statut==='non_deploye'?'#fff':'#B45309'};border-radius:6px;cursor:pointer">⚠️ Non déployé</button>
+          <button onclick="setPBO0Verdict(${idx},'coord_modif')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #003087;background:${a.terrain&&a.terrain.statut==='coord_modif'?'#003087':'#fff'};color:${a.terrain&&a.terrain.statut==='coord_modif'?'#fff':'#003087'};border-radius:6px;cursor:pointer">📍 Coord. à modif</button>
+          <button onclick="setPBO0Verdict(${idx},'introuvable')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #DC2626;background:${a.terrain&&a.terrain.statut==='introuvable'?'#DC2626':'#fff'};color:${a.terrain&&a.terrain.statut==='introuvable'?'#fff':'#DC2626'};border-radius:6px;cursor:pointer">❌ Introuvable</button>
+        </div>
+        ${a.terrain && a.terrain.statut==='coord_modif' ? `
+          <div style="margin-top:8px;padding:8px;background:#DBEAFE;border-radius:6px">
+            <button onclick="captureGPS(${idx})" style="width:100%;padding:9px;font-size:11px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:6px;cursor:pointer">📍 Capturer ma position GPS</button>
+            ${a.terrain.lat_corr ? `<div style="font-size:10px;color:var(--blue);margin-top:6px;font-family:var(--mono)">Nouvelle position: ${a.terrain.lat_corr.toFixed(6)}, ${a.terrain.lng_corr.toFixed(6)}</div>` : ''}
+          </div>
+        ` : ''}
+        <textarea id="pbo0-note-${idx}" placeholder="Note terrain (optionnel)..." onblur="savePBO0Note(${idx}, this.value)" style="width:100%;margin-top:8px;font-size:11px;min-height:50px;padding:8px;border:1px solid var(--gray3);border-radius:6px;font-family:var(--mono);resize:vertical">${a.terrain && a.terrain.note ? a.terrain.note : ''}</textarea>
+      `}
+    </div>
+  `;
+}
+
+function renderPBO0Map() {
+  return '<div id="pbo0-leaflet-map" style="height:400px;border-radius:8px;border:1px solid var(--gray3);margin-bottom:10px"></div><div id="pbo0-map-info" style="font-size:11px;color:var(--text4);text-align:center;font-family:var(--mono)">Cliquez sur un marqueur pour voir le détail</div>';
+}
+
+function initPBO0Map(arrets) {
+  if (pbo0Map) { try { pbo0Map.remove(); } catch(e){} pbo0Map = null; }
+  const valid = arrets.filter(a => a.lat && a.lng);
+  if (!valid.length) return;
+  const center = [valid[0].lat, valid[0].lng];
+  pbo0Map = L.map('pbo0-leaflet-map').setView(center, 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM', maxZoom: 19 }).addTo(pbo0Map);
+  pbo0MapMarkers = [];
+  const bounds = [];
+  valid.forEach((a, idx) => {
+    const v = a.terrain && a.terrain.statut ? pbo0VerdictMeta(a.terrain.statut) : null;
+    const color = v ? v.color : '#003087';
+    const lat = (a.terrain && a.terrain.lat_corr) ? a.terrain.lat_corr : a.lat;
+    const lng = (a.terrain && a.terrain.lng_corr) ? a.terrain.lng_corr : a.lng;
+    const icon = L.divIcon({
+      html: `<div style="background:${color};color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.3)">${a.ordre || (idx+1)}</div>`,
+      className: '', iconSize: [30,30], iconAnchor: [15,15]
+    });
+    const mk = L.marker([lat, lng], { icon }).addTo(pbo0Map);
+    mk.bindPopup(`<b>N°${a.ordre} · ${a.pbo_id}</b><br>${a.adresses[0]?.adresse || ''}<br>${a.adresses[0]?.commune || ''}<br>${v ? `<b style="color:${v.color}">${v.emoji} ${v.label}</b>` : '<i>Non traité</i>'}<br><button onclick="setPBO0View('list','${currentPBO0Mission?.id||''}');setTimeout(()=>document.getElementById('pbo0-card-${idx}')?.scrollIntoView({behavior:'smooth',block:'center'}),200)" style="margin-top:6px;padding:5px 10px;background:#003087;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Voir détail</button>`);
+    pbo0MapMarkers.push(mk);
+    bounds.push([lat, lng]);
+  });
+  if (bounds.length > 1) pbo0Map.fitBounds(bounds, { padding: [30,30] });
+}
+
+function setPBO0View(view, missionId) {
+  pbo0View = view;
+  const m = missions.find(x => x.id === missionId);
+  if (m) renderPBO0Detail(m);
+}
+
+let currentPBO0Mission = null;
+async function setPBO0Verdict(idx, statut) {
+  const m = currentPBO0Mission || missions.find(x => x.statut === 'en-cours' && x.type_audit === 'PBO0');
+  if (!m) return;
+  const arrets = getPBO0Arrets(m);
+  if (!arrets[idx]) return;
+  if (!arrets[idx].terrain) arrets[idx].terrain = { statut: null, lat_corr: null, lng_corr: null, note: '', date: null };
+  arrets[idx].terrain.statut = statut;
+  arrets[idx].terrain.date = new Date().toISOString();
+  m.pm_data = { ...(m.pm_data||{}), pbo0_arrets: arrets };
+  await sb.from('missions').update({ pm_data: m.pm_data }).eq('id', m.id);
+  renderPBO0Detail(m);
+}
+
+async function savePBO0Note(idx, note) {
+  const m = currentPBO0Mission || missions.find(x => x.statut === 'en-cours' && x.type_audit === 'PBO0');
+  if (!m) return;
+  const arrets = getPBO0Arrets(m);
+  if (!arrets[idx]) return;
+  if (!arrets[idx].terrain) arrets[idx].terrain = { statut: null, lat_corr: null, lng_corr: null, note: '', date: null };
+  arrets[idx].terrain.note = note;
+  m.pm_data = { ...(m.pm_data||{}), pbo0_arrets: arrets };
+  await sb.from('missions').update({ pm_data: m.pm_data }).eq('id', m.id);
+}
+
+function captureGPS(idx) {
+  if (!navigator.geolocation) { alert('GPS non disponible sur cet appareil.'); return; }
+  const m = currentPBO0Mission || missions.find(x => x.statut === 'en-cours' && x.type_audit === 'PBO0');
+  if (!m) return;
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const arrets = getPBO0Arrets(m);
+    if (!arrets[idx]) return;
+    if (!arrets[idx].terrain) arrets[idx].terrain = { statut: 'coord_modif', lat_corr: null, lng_corr: null, note: '', date: null };
+    arrets[idx].terrain.lat_corr = pos.coords.latitude;
+    arrets[idx].terrain.lng_corr = pos.coords.longitude;
+    arrets[idx].terrain.date = new Date().toISOString();
+    m.pm_data = { ...(m.pm_data||{}), pbo0_arrets: arrets };
+    await sb.from('missions').update({ pm_data: m.pm_data }).eq('id', m.id);
+    renderPBO0Detail(m);
+  }, (err) => { alert('Erreur GPS : ' + err.message); }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+async function finishPBO0Mission(id) {
+  const m = missions.find(x => x.id === id);
+  if (!m) return;
+  const arrets = getPBO0Arrets(m);
+  const traites = arrets.filter(a => a.terrain && a.terrain.statut).length;
+  if (traites < arrets.length) {
+    if (!confirm(`${arrets.length - traites} PBO non traité(s). Terminer quand même ?`)) return;
+  }
+  await updateMissionStatus(id, 'termine');
+  await loadMyMissions();
+  renderMissionDetail(missions.find(x => x.id === id));
+  renderTechMissions();
+}
+
+function exportPBO0CSV(id) {
+  const m = missions.find(x => x.id === id);
+  if (!m) return;
+  const arrets = getPBO0Arrets(m);
+  const rows = [['ordre','pbo_id','lat_origine','lng_origine','adresse','code_postal','commune','nb_logements','verdict_terrain','lat_corrigee','lng_corrigee','note_terrain','date_audit']];
+  arrets.forEach(a => {
+    const adr = a.adresses[0] || {};
+    const t = a.terrain || {};
+    const v = t.statut ? pbo0VerdictMeta(t.statut) : null;
+    rows.push([a.ordre, a.pbo_id, a.lat, a.lng, adr.adresse||'', adr.code_postal||'', adr.commune||'', a.nb_logements, v?v.label:'', t.lat_corr||'', t.lng_corr||'', (t.note||'').replace(/[\r\n;]/g,' '), t.date||'']);
+  });
+  const csv = rows.map(r => r.map(c => `"${(c+'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `tournee_pbo0_${m.ref_pm}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
 async function startAudit(id) {
   const m = missions.find(x => x.id === id);
   if (!m) return;
@@ -2094,6 +2400,13 @@ async function startAudit(id) {
     await loadMyMissions();
   }
   const updM = missions.find(x => x.id === id);
+  // PBO0: no PM/PBO data loading, just render the dedicated view
+  if (updM && updM.type_audit === 'PBO0') {
+    currentPBO0Mission = updM;
+    renderMissionDetail(updM);
+    renderTechMissions();
+    return;
+  }
   renderMissionDetail(updM);
   renderTechMissions();
   // Load PBO data into audit tool
