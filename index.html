@@ -2241,9 +2241,17 @@ function renderPBO0List(arrets, readOnly) {
 
 function renderPBO0Card(a, idx, isNext, readOnly) {
   const v = a.terrain && a.terrain.statut ? pbo0VerdictMeta(a.terrain.statut) : null;
-  const adrsHtml = a.adresses.map(ad => `
-    <div style="font-size:11px;color:var(--text3);padding:4px 0;border-top:1px dashed var(--gray2);font-family:var(--mono)">
-      <b>${ad.adresse}</b> · ${ad.code_postal} ${ad.commune} · ${ad.nb_logements} log. · ${ad.type_immeuble}
+  const adrsHtml = a.adresses.map((ad, i) => `
+    <div style="background:#F4F6FA;border-left:3px solid var(--blue);padding:8px 10px;margin-top:${i===0?'10':'6'}px;border-radius:4px">
+      <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.3">${ad.adresse}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)">
+        <b>${ad.code_postal}</b> ${ad.commune}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:5px">
+        <span style="font-size:10px;background:#fff;border:1px solid var(--gray3);padding:2px 7px;border-radius:10px;color:var(--text3);font-weight:700">🏠 ${ad.nb_logements} log.</span>
+        <span style="font-size:10px;background:#fff;border:1px solid var(--gray3);padding:2px 7px;border-radius:10px;color:var(--text3)">${ad.type_immeuble}</span>
+        ${ad.cas ? `<span style="font-size:10px;background:#FEF3C7;color:#B45309;padding:2px 7px;border-radius:10px;font-weight:700">${ad.cas}</span>` : ''}
+      </div>
     </div>
   `).join('');
   const borderColor = v ? v.color : (isNext ? 'var(--blue)' : 'var(--gray3)');
@@ -2251,13 +2259,13 @@ function renderPBO0Card(a, idx, isNext, readOnly) {
   return `
     <div id="pbo0-card-${idx}" style="background:#fff;border:${borderWidth} solid ${borderColor};border-radius:8px;padding:12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px">
-        <div style="font-size:10px;font-weight:700;color:var(--blue);font-family:var(--mono);letter-spacing:.5px">N°${a.ordre || (idx+1)}${isNext?' · PROCHAIN':''}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--blue);font-family:var(--mono);letter-spacing:.5px">📍 Arrêt N°${a.ordre || (idx+1)}${isNext?' · PROCHAIN':''}</div>
         ${v ? `<span style="background:${v.bg};color:${v.color};padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700">${v.emoji} ${v.label}</span>` : ''}
       </div>
       <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:4px">${a.pbo_id}</div>
-      <div style="font-size:11px;color:var(--text4);margin-bottom:8px">${a.verdict_label || ''} · ${a.nb_logements} log.</div>
+      <div style="font-size:11px;color:var(--text4);margin-bottom:4px">${a.verdict_label || ''} · Total ${a.nb_logements} logements</div>
       ${adrsHtml}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
         <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
         <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
       </div>
@@ -2282,33 +2290,149 @@ function renderPBO0Card(a, idx, isNext, readOnly) {
 }
 
 function renderPBO0Map() {
-  return '<div id="pbo0-leaflet-map" style="height:400px;border-radius:8px;border:1px solid var(--gray3);margin-bottom:10px"></div><div id="pbo0-map-info" style="font-size:11px;color:var(--text4);text-align:center;font-family:var(--mono)">Cliquez sur un marqueur pour voir le détail</div>';
+  return `
+    <div id="pbo0-leaflet-map" style="height:420px;border-radius:8px;border:1px solid var(--gray3);margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px;padding:8px 10px;background:#fff;border:1px solid var(--gray3);border-radius:6px">
+      <div id="pbo0-tech-pos" style="font-size:10px;color:var(--text4);font-family:var(--mono)">📡 Position GPS : en attente...</div>
+      <button id="pbo0-toggle-gps" onclick="togglePBO0GPS()" style="font-size:11px;padding:5px 10px;background:var(--blue);color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700">🛰 Activer GPS</button>
+    </div>
+    <div style="font-size:10px;color:var(--text4);text-align:center;font-family:var(--mono)">Trait bleu = itinéraire 1→${(currentPBO0Mission && currentPBO0Mission.pm_data && currentPBO0Mission.pm_data.pbo0_arrets) ? currentPBO0Mission.pm_data.pbo0_arrets.length : 'N'} · Pastille bleue pulsante = vous</div>
+  `;
 }
+
+let pbo0TechMarker = null;
+let pbo0TechCircle = null;
+let pbo0GpsWatchId = null;
+let pbo0LastTechPos = null;
 
 function initPBO0Map(arrets) {
   if (pbo0Map) { try { pbo0Map.remove(); } catch(e){} pbo0Map = null; }
-  const valid = arrets.filter(a => a.lat && a.lng);
+  pbo0TechMarker = null; pbo0TechCircle = null;
+  const valid = arrets.filter(a => a.lat && a.lng).sort((a,b) => (a.ordre||0) - (b.ordre||0));
   if (!valid.length) return;
   const center = [valid[0].lat, valid[0].lng];
   pbo0Map = L.map('pbo0-leaflet-map').setView(center, 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM', maxZoom: 19 }).addTo(pbo0Map);
   pbo0MapMarkers = [];
   const bounds = [];
+  const routePoints = [];
   valid.forEach((a, idx) => {
     const v = a.terrain && a.terrain.statut ? pbo0VerdictMeta(a.terrain.statut) : null;
     const color = v ? v.color : '#003087';
     const lat = (a.terrain && a.terrain.lat_corr) ? a.terrain.lat_corr : a.lat;
     const lng = (a.terrain && a.terrain.lng_corr) ? a.terrain.lng_corr : a.lng;
     const icon = L.divIcon({
-      html: `<div style="background:${color};color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.3)">${a.ordre || (idx+1)}</div>`,
-      className: '', iconSize: [30,30], iconAnchor: [15,15]
+      html: `<div style="background:${color};color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)">${a.ordre || (idx+1)}</div>`,
+      className: '', iconSize: [32,32], iconAnchor: [16,16]
     });
     const mk = L.marker([lat, lng], { icon }).addTo(pbo0Map);
-    mk.bindPopup(`<b>N°${a.ordre} · ${a.pbo_id}</b><br>${a.adresses[0]?.adresse || ''}<br>${a.adresses[0]?.commune || ''}<br>${v ? `<b style="color:${v.color}">${v.emoji} ${v.label}</b>` : '<i>Non traité</i>'}<br><button onclick="setPBO0View('list','${currentPBO0Mission?.id||''}');setTimeout(()=>document.getElementById('pbo0-card-${idx}')?.scrollIntoView({behavior:'smooth',block:'center'}),200)" style="margin-top:6px;padding:5px 10px;background:#003087;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Voir détail</button>`);
+    const adr = a.adresses[0] || {};
+    mk.bindPopup(`
+      <div style="font-family:system-ui,sans-serif;min-width:200px">
+        <div style="font-weight:700;font-size:13px;color:#003087;margin-bottom:4px">N°${a.ordre} · ${a.pbo_id}</div>
+        <div style="font-size:12px;font-weight:700;margin-bottom:2px">${adr.adresse || ''}</div>
+        <div style="font-size:11px;color:#666;margin-bottom:4px">${adr.code_postal || ''} ${adr.commune || ''}</div>
+        <div style="font-size:11px;color:#666;margin-bottom:6px">🏠 ${a.nb_logements} logements${a.adresses.length>1?` · ${a.adresses.length} adresses`:''}</div>
+        ${v ? `<div style="font-weight:700;color:${v.color};font-size:11px;margin-bottom:6px">${v.emoji} ${v.label}</div>` : '<div style="font-style:italic;color:#999;font-size:11px;margin-bottom:6px">Non traité</div>'}
+        <button onclick="setPBO0View('list','${currentPBO0Mission?.id||''}');setTimeout(()=>document.getElementById('pbo0-card-${idx}')?.scrollIntoView({behavior:'smooth',block:'center'}),200)" style="padding:6px 10px;background:#003087;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">Voir détail</button>
+      </div>
+    `);
     pbo0MapMarkers.push(mk);
     bounds.push([lat, lng]);
+    routePoints.push([lat, lng]);
   });
-  if (bounds.length > 1) pbo0Map.fitBounds(bounds, { padding: [30,30] });
+  // Itinéraire ordonné (polyline bleue)
+  if (routePoints.length > 1) {
+    L.polyline(routePoints, { color: '#003087', weight: 4, opacity: 0.7, dashArray: '8,6' }).addTo(pbo0Map);
+    // Petites flèches de direction sur les segments
+    for (let i = 0; i < routePoints.length - 1; i++) {
+      const mid = [(routePoints[i][0]+routePoints[i+1][0])/2, (routePoints[i][1]+routePoints[i+1][1])/2];
+      const arrowIcon = L.divIcon({
+        html: '<div style="color:#003087;font-size:18px;font-weight:900;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff">▶</div>',
+        className: '', iconSize: [20,20], iconAnchor: [10,10]
+      });
+      L.marker(mid, { icon: arrowIcon, interactive: false }).addTo(pbo0Map);
+    }
+  }
+  if (bounds.length > 1) pbo0Map.fitBounds(bounds, { padding: [40,40] });
+  // Restaurer position tech si déjà connue
+  if (pbo0LastTechPos) updateTechPosOnMap(pbo0LastTechPos.lat, pbo0LastTechPos.lng, pbo0LastTechPos.acc);
+}
+
+function togglePBO0GPS() {
+  const btn = document.getElementById('pbo0-toggle-gps');
+  if (pbo0GpsWatchId !== null) {
+    navigator.geolocation.clearWatch(pbo0GpsWatchId);
+    pbo0GpsWatchId = null;
+    if (btn) { btn.textContent = '🛰 Activer GPS'; btn.style.background = 'var(--blue)'; }
+    const el = document.getElementById('pbo0-tech-pos');
+    if (el) el.textContent = '📡 GPS désactivé';
+    if (pbo0TechMarker) { pbo0Map.removeLayer(pbo0TechMarker); pbo0TechMarker = null; }
+    if (pbo0TechCircle) { pbo0Map.removeLayer(pbo0TechCircle); pbo0TechCircle = null; }
+    return;
+  }
+  if (!navigator.geolocation) { alert('GPS non disponible.'); return; }
+  if (btn) { btn.textContent = '⏸ Désactiver GPS'; btn.style.background = '#16A34A'; }
+  pbo0GpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      pbo0LastTechPos = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+      updateTechPosOnMap(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+    },
+    (err) => {
+      const el = document.getElementById('pbo0-tech-pos');
+      if (el) el.textContent = '⚠ Erreur GPS : ' + err.message;
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function updateTechPosOnMap(lat, lng, acc) {
+  if (!pbo0Map) return;
+  // Pastille bleue pulsante
+  if (!pbo0TechMarker) {
+    const icon = L.divIcon({
+      html: `<div style="position:relative;width:24px;height:24px">
+        <div style="position:absolute;inset:0;background:#1565C0;border-radius:50%;width:24px;height:24px;border:3px solid #fff;box-shadow:0 0 8px rgba(21,101,192,.8);z-index:2"></div>
+        <div style="position:absolute;inset:-6px;background:rgba(21,101,192,.3);border-radius:50%;animation:pulse 2s infinite;z-index:1"></div>
+      </div>`,
+      className: '', iconSize: [24,24], iconAnchor: [12,12]
+    });
+    pbo0TechMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(pbo0Map);
+    pbo0TechMarker.bindPopup('<b>📡 Votre position</b>');
+    pbo0TechCircle = L.circle([lat, lng], { radius: acc || 20, color: '#1565C0', fillColor: '#1565C0', fillOpacity: 0.1, weight: 1 }).addTo(pbo0Map);
+  } else {
+    pbo0TechMarker.setLatLng([lat, lng]);
+    if (pbo0TechCircle) pbo0TechCircle.setLatLng([lat, lng]).setRadius(acc || 20);
+  }
+  // Détection PBO proche (< 30m)
+  const arrets = currentPBO0Mission ? getPBO0Arrets(currentPBO0Mission) : [];
+  let closest = null, closestDist = Infinity;
+  arrets.forEach((a, idx) => {
+    if (!a.lat || !a.lng) return;
+    const aLat = (a.terrain && a.terrain.lat_corr) ? a.terrain.lat_corr : a.lat;
+    const aLng = (a.terrain && a.terrain.lng_corr) ? a.terrain.lng_corr : a.lng;
+    const d = haversineDist(lat, lng, aLat, aLng);
+    if (d < closestDist) { closestDist = d; closest = { a, idx, d }; }
+  });
+  const el = document.getElementById('pbo0-tech-pos');
+  if (el) {
+    let html = `📡 ${lat.toFixed(5)}, ${lng.toFixed(5)} ${acc?`(±${Math.round(acc)}m)`:''}`;
+    if (closest && closest.d < 30) {
+      html += ` · <b style="color:#16A34A">🎯 Près de N°${closest.a.ordre} (${Math.round(closest.d)}m)</b>`;
+    } else if (closest) {
+      html += ` · Plus proche : N°${closest.a.ordre} (${Math.round(closest.d)}m)`;
+    }
+    el.innerHTML = html;
+  }
+}
+
+function haversineDist(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 function setPBO0View(view, missionId) {
