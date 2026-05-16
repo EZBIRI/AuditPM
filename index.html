@@ -2085,14 +2085,41 @@ function setPrio(p) {
 // ══════════════════════════════════════════════
 // TECH — MISSIONS
 // ══════════════════════════════════════════════
+let techMissionFilter = 'en-cours'; // 'en-cours' | 'termine' | 'tous'
+let techMissionShowAll = false;
+
+function setTechFilter(f) {
+  techMissionFilter = f;
+  techMissionShowAll = false;
+  renderTechMissions();
+}
+
 function renderTechMissions() {
   const pending = missions.filter(m => m.statut !== 'termine');
   const done = missions.filter(m => m.statut === 'termine');
-  const all = [...pending, ...done];
   document.getElementById('tech-count').textContent = pending.length + ' active' + (pending.length!==1?'s':'');
   const list = document.getElementById('tech-missions-list');
-  if (!all.length) { list.innerHTML = '<div class="no-missions-msg">Aucune mission assignée</div>'; return; }
-  list.innerHTML = all.map(m => {
+  if (!missions.length) { list.innerHTML = '<div class="no-missions-msg">Aucune mission assignée</div>'; return; }
+  // Filtrage
+  let filtered;
+  if (techMissionFilter === 'en-cours') filtered = pending;
+  else if (techMissionFilter === 'termine') filtered = done;
+  else filtered = [...pending, ...done];
+  // Barre de filtres
+  const fBtn = (key, label, count) => `<button onclick="setTechFilter('${key}')" style="flex:1;padding:7px 4px;font-size:11px;font-weight:700;border:none;border-radius:6px;cursor:pointer;background:${techMissionFilter===key?'var(--blue)':'var(--gray2)'};color:${techMissionFilter===key?'#fff':'var(--text3)'}">${label} (${count})</button>`;
+  const filterBar = `<div style="display:flex;gap:6px;margin-bottom:10px">
+    ${fBtn('en-cours','En cours',pending.length)}
+    ${fBtn('termine','Terminé',done.length)}
+    ${fBtn('tous','Tous',missions.length)}
+  </div>`;
+  if (!filtered.length) {
+    list.innerHTML = filterBar + '<div class="no-missions-msg">Aucune mission dans ce filtre</div>';
+    return;
+  }
+  // Limite 8
+  const LIMIT = 8;
+  const shown = techMissionShowAll ? filtered : filtered.slice(0, LIMIT);
+  const itemsHtml = shown.map(m => {
     const pc = m.priorite==='haute'?'var(--red)':m.priorite==='moyenne'?'#F59E0B':'var(--green)';
     const cls = (m.id===selectedMissionId?'active-item':'') + (m.statut==='termine'?' done-item':'');
     return `<div class="mission-item ${cls}" onclick="selectMission('${m.id}')">
@@ -2104,6 +2131,13 @@ function renderTechMissions() {
       <span class="mc-status ${m.statut}" style="font-size:9px">${m.statut==='attente'?'Attente':m.statut==='en-cours'?'En cours':'Terminé'}</span>
     </div>`;
   }).join('');
+  let moreBtn = '';
+  if (filtered.length > LIMIT) {
+    moreBtn = techMissionShowAll
+      ? `<button onclick="techMissionShowAll=false;renderTechMissions()" style="width:100%;padding:8px;margin-top:6px;font-size:11px;font-weight:700;background:var(--gray2);color:var(--text3);border:none;border-radius:6px;cursor:pointer">▲ Réduire</button>`
+      : `<button onclick="techMissionShowAll=true;renderTechMissions()" style="width:100%;padding:8px;margin-top:6px;font-size:11px;font-weight:700;background:var(--gray2);color:var(--text3);border:none;border-radius:6px;cursor:pointer">▼ Voir les ${filtered.length-LIMIT} autres</button>`;
+  }
+  list.innerHTML = filterBar + itemsHtml + moreBtn;
 }
 
 async function selectMission(id) {
@@ -2325,9 +2359,16 @@ function renderPBO0Card(a, idx, isNext, readOnly) {
           <button onclick="setPBO0Verdict(${idx},'introuvable')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #DC2626;background:${a.terrain&&a.terrain.statut==='introuvable'?'#DC2626':'#fff'};color:${a.terrain&&a.terrain.statut==='introuvable'?'#fff':'#DC2626'};border-radius:6px;cursor:pointer">❌ Introuvable</button>
         </div>
         ${a.terrain && a.terrain.statut==='coord_modif' ? `
-          <div style="margin-top:8px;padding:8px;background:#DBEAFE;border-radius:6px">
-            <button onclick="captureGPS(${idx})" style="width:100%;padding:9px;font-size:11px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:6px;cursor:pointer">📍 Capturer ma position GPS</button>
-            ${a.terrain.lat_corr ? `<div style="font-size:10px;color:var(--blue);margin-top:6px;font-family:var(--mono)">Nouvelle position: ${a.terrain.lat_corr.toFixed(6)}, ${a.terrain.lng_corr.toFixed(6)}</div>` : ''}
+          <div style="margin-top:8px;padding:10px;background:#DBEAFE;border-radius:6px">
+            <div style="font-size:10px;color:#003087;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">📍 Nouvelle position via photo</div>
+            <input type="file" id="pbo0-photo-input-${idx}" accept="image/*" capture="environment" onchange="capturePBO0Photo(${idx}, this.files[0])" style="display:none">
+            <button onclick="document.getElementById('pbo0-photo-input-${idx}').click()" style="width:100%;padding:10px;font-size:11px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:6px;cursor:pointer">📸 Prendre la photo (capture la position GPS)</button>
+            <div id="pbo0-photo-status-${idx}" style="font-size:10px;color:var(--blue);margin-top:6px;font-family:var(--mono)">${
+              a.terrain.lat_corr
+                ? '✅ Position: ' + a.terrain.lat_corr.toFixed(6) + ', ' + a.terrain.lng_corr.toFixed(6) + (a.terrain.photo_url ? ' · 📷 photo OK' : '')
+                : 'En attente de la photo...'
+            }</div>
+            ${a.terrain.photo_url ? `<img src="${a.terrain.photo_url}" style="width:100%;margin-top:6px;border-radius:6px;max-height:160px;object-fit:cover">` : ''}
           </div>
         ` : ''}
         <textarea id="pbo0-note-${idx}" placeholder="Note terrain (optionnel)..." onblur="savePBO0Note(${idx}, this.value)" style="width:100%;margin-top:8px;font-size:11px;min-height:50px;padding:8px;border:1px solid var(--gray3);border-radius:6px;font-family:var(--mono);resize:vertical">${a.terrain && a.terrain.note ? a.terrain.note : ''}</textarea>
@@ -2513,21 +2554,48 @@ async function savePBO0Note(idx, note) {
   await sb.from('missions').update({ pm_data: m.pm_data }).eq('id', m.id);
 }
 
-function captureGPS(idx) {
-  if (!navigator.geolocation) { alert('GPS non disponible sur cet appareil.'); return; }
+async function capturePBO0Photo(idx, file) {
+  if (!file) return;
   const m = currentPBO0Mission || missions.find(x => x.statut === 'en-cours' && x.type_audit === 'PBO0');
   if (!m) return;
+  const statusEl = document.getElementById('pbo0-photo-status-' + idx);
+  if (statusEl) statusEl.textContent = '📡 Capture de la position GPS...';
+  if (!navigator.geolocation) { alert('GPS non disponible sur cet appareil.'); return; }
+  // 1. Capturer la position GPS au moment de la photo
   navigator.geolocation.getCurrentPosition(async (pos) => {
     const arrets = getPBO0Arrets(m);
     if (!arrets[idx]) return;
     if (!arrets[idx].terrain) arrets[idx].terrain = { statut: 'coord_modif', lat_corr: null, lng_corr: null, note: '', date: null };
     arrets[idx].terrain.lat_corr = pos.coords.latitude;
     arrets[idx].terrain.lng_corr = pos.coords.longitude;
+    arrets[idx].terrain.gps_acc = pos.coords.accuracy;
     arrets[idx].terrain.date = new Date().toISOString();
+    if (statusEl) statusEl.textContent = '📤 Envoi de la photo...';
+    // 2. Upload de la photo dans le bucket
+    try {
+      const safeName = file.name.replace(/[^a-z0-9.]/gi, '_');
+      const path = m.id + '/pbo0/' + arrets[idx].pbo_id.replace(/[^a-z0-9]/gi,'_') + '_' + Date.now() + '_' + safeName;
+      const { error: upErr } = await sb.storage.from('photos').upload(path, file, { cacheControl: '3600', upsert: false });
+      if (upErr) {
+        console.error('Upload photo PBO0:', upErr);
+        if (statusEl) statusEl.textContent = '⚠ Position OK mais photo non envoyée';
+      } else {
+        const { data: urlData } = sb.storage.from('photos').getPublicUrl(path);
+        arrets[idx].terrain.photo_url = urlData.publicUrl;
+        arrets[idx].terrain.photo_path = path;
+      }
+    } catch (err) {
+      console.error(err);
+      if (statusEl) statusEl.textContent = '⚠ Position OK mais photo non envoyée';
+    }
+    // 3. Sauvegarde
     m.pm_data = { ...(m.pm_data||{}), pbo0_arrets: arrets };
     await sb.from('missions').update({ pm_data: m.pm_data }).eq('id', m.id);
     renderPBO0Detail(m);
-  }, (err) => { alert('Erreur GPS : ' + err.message); }, { enableHighAccuracy: true, timeout: 10000 });
+  }, (err) => {
+    alert('Erreur GPS : ' + err.message + '\nLa position n\'a pas pu être capturée.');
+    if (statusEl) statusEl.textContent = '⚠ Erreur GPS';
+  }, { enableHighAccuracy: true, timeout: 15000 });
 }
 
 async function finishPBO0Mission(id) {
@@ -2548,12 +2616,12 @@ function exportPBO0CSV(id) {
   const m = missions.find(x => x.id === id);
   if (!m) return;
   const arrets = getPBO0Arrets(m);
-  const rows = [['ordre','pbo_id','lat_origine','lng_origine','adresse','code_postal','commune','nb_logements','verdict_terrain','lat_corrigee','lng_corrigee','note_terrain','date_audit']];
+  const rows = [['ordre','pbo_id','lat_origine','lng_origine','adresse','code_postal','commune','nb_logements','verdict_terrain','lat_corrigee','lng_corrigee','photo_url','note_terrain','date_audit']];
   arrets.forEach(a => {
     const adr = a.adresses[0] || {};
     const t = a.terrain || {};
     const v = t.statut ? pbo0VerdictMeta(t.statut) : null;
-    rows.push([a.ordre, a.pbo_id, a.lat, a.lng, adr.adresse||'', adr.code_postal||'', adr.commune||'', a.nb_logements, v?v.label:'', t.lat_corr||'', t.lng_corr||'', (t.note||'').replace(/[\r\n;]/g,' '), t.date||'']);
+    rows.push([a.ordre, a.pbo_id, a.lat, a.lng, adr.adresse||'', adr.code_postal||'', adr.commune||'', a.nb_logements, v?v.label:'', t.lat_corr||'', t.lng_corr||'', t.photo_url||'', (t.note||'').replace(/[\r\n;]/g,' '), t.date||'']);
   });
   const csv = rows.map(r => r.map(c => `"${(c+'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8' });
