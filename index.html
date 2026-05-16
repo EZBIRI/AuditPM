@@ -2227,6 +2227,7 @@ function pbo0VerdictMeta(v) {
 
 function renderPBO0Detail(m) {
   const el = document.getElementById('tech-detail');
+  console.log('[PBO0] mission:', m.id, 'pm_data type:', typeof m.pm_data, 'arrets:', m.pm_data?.pbo0_arrets?.length, 'sample:', m.pm_data?.pbo0_arrets?.[0]);
   const isDone = m.statut === 'termine';
   const arrets = getPBO0Arrets(m);
   const total = arrets.length;
@@ -2311,27 +2312,6 @@ function renderPBO0Card(a, idx, isNext, readOnly) {
       </div>
       <div style="font-size:11px;color:var(--text4);margin-bottom:4px">${a.verdict_label || ''} · Total ${a.nb_logements} logements · ${a.adresses.length} immeuble${a.adresses.length>1?'s':''}</div>
       ${adrsHtml}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
-        <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
-        <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
-      </div>
-      ${readOnly ? '' : `
-        <div style="font-size:10px;color:var(--text3);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Verdict terrain</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          <button onclick="setPBO0Verdict(${idx},'deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #16A34A;background:${a.terrain&&a.terrain.statut==='deploye'?'#16A34A':'#fff'};color:${a.terrain&&a.terrain.statut==='deploye'?'#fff':'#16A34A'};border-radius:6px;cursor:pointer">✅ Déployé</button>
-          <button onclick="setPBO0Verdict(${idx},'non_deploye')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #B45309;background:${a.terrain&&a.terrain.statut==='non_deploye'?'#B45309':'#fff'};color:${a.terrain&&a.terrain.statut==='non_deploye'?'#fff':'#B45309'};border-radius:6px;cursor:pointer">⚠️ Non déployé</button>
-          <button onclick="setPBO0Verdict(${idx},'coord_modif')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #003087;background:${a.terrain&&a.terrain.statut==='coord_modif'?'#003087':'#fff'};color:${a.terrain&&a.terrain.statut==='coord_modif'?'#fff':'#003087'};border-radius:6px;cursor:pointer">📍 Coord. à modif</button>
-          <button onclick="setPBO0Verdict(${idx},'introuvable')" style="padding:9px;font-size:11px;font-weight:700;border:1px solid #DC2626;background:${a.terrain&&a.terrain.statut==='introuvable'?'#DC2626':'#fff'};color:${a.terrain&&a.terrain.statut==='introuvable'?'#fff':'#DC2626'};border-radius:6px;cursor:pointer">❌ Introuvable</button>
-        </div>
-        ${a.terrain && a.terrain.statut==='coord_modif' ? `
-          <div style="margin-top:8px;padding:8px;background:#DBEAFE;border-radius:6px">
-            <button onclick="captureGPS(${idx})" style="width:100%;padding:9px;font-size:11px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:6px;cursor:pointer">📍 Capturer ma position GPS</button>
-            ${a.terrain.lat_corr ? `<div style="font-size:10px;color:var(--blue);margin-top:6px;font-family:var(--mono)">Nouvelle position: ${a.terrain.lat_corr.toFixed(6)}, ${a.terrain.lng_corr.toFixed(6)}</div>` : ''}
-          </div>
-        ` : ''}
-        <textarea id="pbo0-note-${idx}" placeholder="Note terrain (optionnel)..." onblur="savePBO0Note(${idx}, this.value)" style="width:100%;margin-top:8px;font-size:11px;min-height:50px;padding:8px;border:1px solid var(--gray3);border-radius:6px;font-family:var(--mono);resize:vertical">${a.terrain && a.terrain.note ? a.terrain.note : ''}</textarea>
-      `}
-    </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
         <a href="${a.google_maps}" target="_blank" style="background:var(--blue);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🧭 Y aller</a>
         <a href="${a.streetview}" target="_blank" style="background:var(--gray2);color:var(--text);text-align:center;padding:8px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">👁 Street view</a>
