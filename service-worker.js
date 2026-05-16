@@ -1,6 +1,6 @@
 // PM Audit Platform — Service Worker
 // Version : bump this number when you push major updates so old caches are cleared
-const CACHE_VERSION = "pm-audit-v5";
+const CACHE_VERSION = "pm-audit-v6";
 const CACHE_NAME = `pm-audit-${CACHE_VERSION}`;
 
 // Files to cache for offline use
