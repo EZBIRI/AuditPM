@@ -1820,17 +1820,33 @@ function beParsePBO0(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    const txt = e.target.result;
+    let txt = e.target.result;
+    // Supprimer BOM UTF-8 éventuel
+    if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
     const lines = txt.split(/\r?\n/);
-    const h0 = lines[0];
+    let h0 = lines[0] || '';
+    // Détection séparateur sur header
     const sep = (h0.split(';').length > h0.split(',').length) ? ';' : ',';
-    const hdr = splitLine(h0, sep).map(h => h.toLowerCase().trim());
-    // Match exact pour éviter ambiguïtés (ex: 'adresse' vs 'ordre_adresse')
+    const hdr = splitLine(h0, sep).map(h => h.toLowerCase().trim().replace(/^\uFEFF/, ''));
     function ce(name) { return hdr.indexOf(name.toLowerCase()); }
+    // Diagnostic: colonnes obligatoires
+    const required = ['pbo_id','imm_id','adresse','code_postal','commune','ordre_pbo'];
+    const missing = required.filter(c => ce(c) < 0);
+    if (missing.length) {
+      document.getElementById('be-pbo-state').innerHTML =
+        '<div style="font-size:22px;margin-bottom:6px">⚠️</div>' +
+        '<div style="font-size:12px;font-weight:700;color:#DC2626">Colonnes manquantes</div>' +
+        '<div style="font-size:10px;color:var(--text3);margin-top:6px;font-family:var(--mono)">Absent : ' + missing.join(', ') + '</div>' +
+        '<div style="font-size:10px;color:var(--text4);margin-top:4px;font-family:var(--mono)">Séparateur détecté : "' + sep + '" · ' + hdr.length + ' colonnes</div>' +
+        '<div style="font-size:9px;color:var(--text4);margin-top:4px;font-family:var(--mono);word-break:break-all">Header lu : ' + hdr.join(' | ') + '</div>';
+      bePBO0Parsed = null;
+      return;
+    }
     const arrets = {};
     for (let i = 1; i < lines.length; i++) {
-      const ln = lines[i].trim(); if (!ln) continue;
-      const p = splitLine(ln, sep); if (p.length < 4) continue;
+      if (!lines[i] || !lines[i].trim()) continue;
+      const p = splitLine(lines[i], sep);
+      if (p.length < hdr.length) continue; // ligne incomplète/cassée
       function gv(name) { const idx=ce(name); return idx>=0?(p[idx]||'').trim():''; }
       const pboId = gv('pbo_id'); if (!pboId) continue;
       const ordre = parseInt(gv('ordre_pbo')) || 0;
@@ -1871,11 +1887,24 @@ function beParsePBO0(file) {
     bePBOFileName = file.name;
     const count = bePBO0Parsed.length;
     const totalAdr = bePBO0Parsed.reduce((s,a)=>s+a.adresses.length,0);
+    if (!count) {
+      document.getElementById('be-pbo-state').innerHTML =
+        '<div style="font-size:22px;margin-bottom:6px">⚠️</div>' +
+        '<div style="font-size:12px;font-weight:700;color:#DC2626">Aucun PBO lu</div>' +
+        '<div style="font-size:10px;color:var(--text3);margin-top:6px;font-family:var(--mono)">' + (lines.length-1) + ' lignes · sép "' + sep + '" · ' + hdr.length + ' colonnes</div>' +
+        '<div style="font-size:10px;color:var(--text4);margin-top:4px;font-family:var(--mono)">Vérifiez le format du fichier</div>';
+      bePBO0Parsed = null;
+      return;
+    }
+    // Aperçu 1er PBO pour vérif visuelle
+    const a0 = bePBO0Parsed[0];
+    const ad0 = a0.adresses[0] || {};
     document.getElementById('be-pbo-state').innerHTML =
       '<div style="font-size:22px;margin-bottom:6px">🗺️</div>' +
       '<div style="font-size:12px;font-weight:700;color:var(--green)">' + file.name + '</div>' +
       '<div style="font-size:10px;color:var(--text3);margin-top:4px;font-family:var(--mono)">' + count + ' PBO · ' + totalAdr + ' adresses</div>' +
-      '<div style="font-size:10px;color:var(--text4);margin-top:2px;font-family:var(--mono)">Cliquer pour changer le fichier</div>';
+      '<div style="font-size:9px;color:var(--text4);margin-top:6px;font-family:var(--mono);text-align:left;background:#F4F6FA;padding:6px;border-radius:4px">Aperçu PBO 1 :<br>id=' + a0.pbo_id + '<br>adr=' + (ad0.adresse||'?') + '<br>cp=' + (ad0.code_postal||'?') + ' ' + (ad0.commune||'?') + '<br>imm_id=' + (ad0.imm_id||'?') + '</div>' +
+      '<div style="font-size:10px;color:var(--text4);margin-top:4px;font-family:var(--mono)">Cliquer pour changer le fichier</div>';
   };
   reader.readAsText(file, 'UTF-8');
 }
