@@ -943,8 +943,8 @@ console.log('Supabase client initialized:', SUPABASE_URL);
           
 
           <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-            <input style="flex:1;min-width:180px;background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none" placeholder="🔍 Rechercher..." id="be-search" oninput="renderBEMissions()">
-            <select style="background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);padding:7px 10px;color:var(--text3);font-size:12px;outline:none;cursor:pointer" id="be-filter" onchange="renderBEMissions()">
+            <input style="flex:1;min-width:180px;background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none" placeholder="🔍 Rechercher..." id="be-search" oninput="beMissionPage=1;renderBEMissions()">
+            <select style="background:#fff;border:1px solid var(--gray3);border-radius:var(--radius);padding:7px 10px;color:var(--text3);font-size:12px;outline:none;cursor:pointer" id="be-filter" onchange="beMissionPage=1;renderBEMissions()">
               <option value="">Tous statuts</option>
               <option value="attente">En attente</option>
               <option value="en-cours">En cours</option>
@@ -1418,14 +1418,32 @@ async function loadAdminDashboard() {
     scCard('Missions', total, 'var(--blue)') + scCard('En attente', attente, '#B45309') +
     scCard('En cours', encours, 'var(--blue)') + scCard('Terminées', termine, 'var(--green)') +
     scCard('Utilisateurs', allUsers.length, '#7C3AED');
-  // Recent missions
-  const recents = missions.slice(0, 5);
-  document.getElementById('admin-recent-missions').innerHTML = recents.length
-    ? recents.map(m => missionRow(m)).join('')
-    : '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Aucune mission</div></div>';
+  // Recent missions (paginées)
+  renderAdminMissions();
   
   // Activité terrain
   renderActivityFeed('admin-activity');
+}
+
+let adminMissionPage = 1;
+function setAdminPage(p) {
+  adminMissionPage = p;
+  renderAdminMissions();
+}
+function renderAdminMissions() {
+  const el = document.getElementById('admin-recent-missions');
+  if (!el) return;
+  if (!missions.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Aucune mission</div></div>';
+    return;
+  }
+  const totalPages = Math.ceil(missions.length / PAGE_SIZE);
+  if (adminMissionPage > totalPages) adminMissionPage = totalPages;
+  if (adminMissionPage < 1) adminMissionPage = 1;
+  const startIdx = (adminMissionPage - 1) * PAGE_SIZE;
+  const shown = missions.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageInfo = `<div style="font-size:10px;color:var(--text4);text-align:center;margin-top:6px;font-family:var(--mono)">${missions.length} mission${missions.length>1?'s':''} au total</div>`;
+  el.innerHTML = shown.map(m => missionRow(m)).join('') + renderPagination(adminMissionPage, missions.length, 'setAdminPage') + pageInfo;
 }
 
 async function loadBEDashboard() {
@@ -1698,6 +1716,12 @@ function renderBEStats() {
   renderActivityFeed('be-activity');
 }
 
+let beMissionPage = 1;
+function setBEPage(p) {
+  beMissionPage = p;
+  renderBEMissions();
+}
+
 function renderBEMissions() {
   const listEl = document.getElementById('be-missions-list');
   if (!listEl) return;
@@ -1711,7 +1735,13 @@ function renderBEMissions() {
     listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">Aucune mission</div><div class="empty-sub">Créez votre première mission ci-contre</div></div>';
     return;
   }
-  listEl.innerHTML = filtered.map(m => missionRow(m)).join('');
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  if (beMissionPage > totalPages) beMissionPage = totalPages;
+  if (beMissionPage < 1) beMissionPage = 1;
+  const startIdx = (beMissionPage - 1) * PAGE_SIZE;
+  const shown = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageInfo = `<div style="font-size:10px;color:var(--text4);text-align:center;margin-top:6px;font-family:var(--mono)">${filtered.length} mission${filtered.length>1?'s':''} au total</div>`;
+  listEl.innerHTML = shown.map(m => missionRow(m)).join('') + renderPagination(beMissionPage, filtered.length, 'setBEPage') + pageInfo;
 }
 
 function missionRow(m) {
@@ -2085,12 +2115,30 @@ function setPrio(p) {
 // ══════════════════════════════════════════════
 // TECH — MISSIONS
 // ══════════════════════════════════════════════
+// ── Helper pagination réutilisable ──
+const PAGE_SIZE = 8;
+function renderPagination(currentPage, totalItems, onPageFnName) {
+  const totalPages = Math.ceil(totalItems / PAGE_SIZE);
+  if (totalPages <= 1) return '';
+  const btn = (label, page, disabled) =>
+    `<button ${disabled?'disabled':''} onclick="${onPageFnName}(${page})" style="padding:7px 14px;font-size:11px;font-weight:700;border:1px solid var(--gray3);border-radius:6px;cursor:${disabled?'not-allowed':'pointer'};background:#fff;color:${disabled?'var(--text4)':'var(--blue)'};opacity:${disabled?'.45':'1'}">${label}</button>`;
+  return `<div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:10px">
+    ${btn('‹ Préc', currentPage-1, currentPage<=1)}
+    <span style="font-size:11px;font-weight:700;color:var(--text3);font-family:var(--mono)">Page ${currentPage}/${totalPages}</span>
+    ${btn('Suiv ›', currentPage+1, currentPage>=totalPages)}
+  </div>`;
+}
+
 let techMissionFilter = 'en-cours'; // 'en-cours' | 'termine' | 'tous'
-let techMissionShowAll = false;
+let techMissionPage = 1;
 
 function setTechFilter(f) {
   techMissionFilter = f;
-  techMissionShowAll = false;
+  techMissionPage = 1;
+  renderTechMissions();
+}
+function setTechPage(p) {
+  techMissionPage = p;
   renderTechMissions();
 }
 
@@ -2116,9 +2164,12 @@ function renderTechMissions() {
     list.innerHTML = filterBar + '<div class="no-missions-msg">Aucune mission dans ce filtre</div>';
     return;
   }
-  // Limite 8
-  const LIMIT = 8;
-  const shown = techMissionShowAll ? filtered : filtered.slice(0, LIMIT);
+  // Pagination
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  if (techMissionPage > totalPages) techMissionPage = totalPages;
+  if (techMissionPage < 1) techMissionPage = 1;
+  const startIdx = (techMissionPage - 1) * PAGE_SIZE;
+  const shown = filtered.slice(startIdx, startIdx + PAGE_SIZE);
   const itemsHtml = shown.map(m => {
     const pc = m.priorite==='haute'?'var(--red)':m.priorite==='moyenne'?'#F59E0B':'var(--green)';
     const cls = (m.id===selectedMissionId?'active-item':'') + (m.statut==='termine'?' done-item':'');
@@ -2131,13 +2182,8 @@ function renderTechMissions() {
       <span class="mc-status ${m.statut}" style="font-size:9px">${m.statut==='attente'?'Attente':m.statut==='en-cours'?'En cours':'Terminé'}</span>
     </div>`;
   }).join('');
-  let moreBtn = '';
-  if (filtered.length > LIMIT) {
-    moreBtn = techMissionShowAll
-      ? `<button onclick="techMissionShowAll=false;renderTechMissions()" style="width:100%;padding:8px;margin-top:6px;font-size:11px;font-weight:700;background:var(--gray2);color:var(--text3);border:none;border-radius:6px;cursor:pointer">▲ Réduire</button>`
-      : `<button onclick="techMissionShowAll=true;renderTechMissions()" style="width:100%;padding:8px;margin-top:6px;font-size:11px;font-weight:700;background:var(--gray2);color:var(--text3);border:none;border-radius:6px;cursor:pointer">▼ Voir les ${filtered.length-LIMIT} autres</button>`;
-  }
-  list.innerHTML = filterBar + itemsHtml + moreBtn;
+  const pageInfo = `<div style="font-size:10px;color:var(--text4);text-align:center;margin-top:6px;font-family:var(--mono)">${filtered.length} mission${filtered.length>1?'s':''}</div>`;
+  list.innerHTML = filterBar + itemsHtml + renderPagination(techMissionPage, filtered.length, 'setTechPage') + pageInfo;
 }
 
 async function selectMission(id) {
